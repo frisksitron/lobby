@@ -1,0 +1,32 @@
+server:
+  name: "My Lobby Server"
+  host: "0.0.0.0"
+  port: 8080
+  base_url: "http://localhost:8080"
+
+database:
+  path: "./data/lobby.db"
+
+auth:
+  jwt_secret: ""  # Required - generate with: openssl rand -base64 32
+  access_token_ttl: 15m
+  refresh_token_ttl: 720h
+  magic_code_ttl: 10m
+
+email:
+  smtp:
+    host: "localhost"     # mailpit default
+    port: 1025            # mailpit SMTP port
+    username: ""          # mailpit doesn't require auth
+    password: ""
+    from: "noreply@lobby.local"
+
+sfu:
+  publicIP: ""
+  minPort: 50000
+  maxPort: 50100
+  turn:
+    host: "127.0.0.1"
+    port: 3478
+    secret: "lobby-dev-turn-secret"
+    ttl: 24h

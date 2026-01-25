@@ -1,0 +1,118 @@
+export interface User {
+  // Profile data (from REST API)
+  id: string
+  username: string
+  avatarUrl?: string
+  email?: string
+  createdAt?: string // ISO 8601
+
+  // Session state (from WebSocket)
+  status: "online" | "idle" | "dnd" | "offline"
+  inVoice: boolean
+  voiceMuted: boolean
+  voiceDeafened: boolean
+  voiceSpeaking: boolean
+}
+
+export interface Server {
+  id: string
+  name: string
+  iconUrl?: string
+  ownerId: string
+  memberIds: string[]
+}
+
+export interface Message {
+  id: string
+  serverId: string
+  authorId: string
+  content: string
+  timestamp: string
+}
+
+export interface VoiceParticipant {
+  userId: string
+  muted: boolean
+  deafened: boolean
+  speaking: boolean
+}
+
+export interface VoiceState {
+  inVoice: boolean
+  serverId: string | null
+  participants: VoiceParticipant[]
+  localMuted: boolean
+  localDeafened: boolean
+}
+
+// Session types
+export type SessionStatus = "disconnected" | "connecting" | "connected" | "error"
+
+export interface Session {
+  serverId: string
+  status: SessionStatus
+  error?: string
+  connectedAt?: number
+}
+
+export interface LocalVoiceState {
+  inVoice: boolean
+  muted: boolean
+  deafened: boolean
+}
+
+// Typing indicator state
+export interface TypingUser {
+  userId: string
+  timestamp: string
+}
+
+// Storage types (used by preload/renderer)
+export interface SecureTokens {
+  accessToken: string
+  refreshToken: string
+  expiresAt: string
+}
+
+export type NoiseSuppressionAlgorithm = "speex" | "rnnoise" | "none"
+
+export interface AppSettings {
+  inputDevice: string
+  outputDevice: string
+  lastActiveServerId: string | null
+  noiseSuppression: NoiseSuppressionAlgorithm
+  themeId: string
+  userVolumes: Record<string, number> // userId -> volume (0-200)
+}
+
+export interface ServerEntry {
+  id: string
+  name: string
+  url: string
+  iconUrl?: string
+  email?: string
+}
+
+// Theme types
+export type SoundType = "user-join" | "user-leave" | "mute" | "unmute" | "deafen" | "undeafen"
+
+export interface ThemeColors {
+  background: string
+  surface: string
+  surfaceElevated: string
+  border: string
+  textPrimary: string
+  textSecondary: string
+  accent: string
+  accentHover: string
+  success: string
+  warning: string
+  error: string
+  avatarColors: string[]
+}
+
+export interface Theme {
+  id: string
+  name: string
+  colors: ThemeColors
+}

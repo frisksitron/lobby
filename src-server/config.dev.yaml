@@ -1,0 +1,22 @@
+server:
+  name: "Lobby Dev Server"
+  host: "0.0.0.0"
+  port: 8080
+  base_url: "http://localhost:8080"
+
+database:
+  path: "./data/lobby.db"
+
+auth:
+  jwt_secret: "dev-secret-key-change-in-production-32chars"
+  access_token_ttl: 15m
+  refresh_token_ttl: 720h
+  magic_code_ttl: 10m
+
+email:
+  smtp:
+    host: "localhost"
+    port: 1025
+    username: ""
+    password: ""
+    from: "noreply@lobby.local"
