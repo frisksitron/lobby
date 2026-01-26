@@ -2,7 +2,6 @@ package sfu
 
 import "github.com/pion/webrtc/v4"
 
-// Config holds SFU configuration
 type Config struct {
 	// PublicIP is the public IP address for ICE candidates (empty for auto-detect)
 	PublicIP string
@@ -26,16 +25,4 @@ func (c *Config) ToWebRTCConfig() webrtc.Configuration {
 			{URLs: []string{c.STUNUrl}},
 		},
 	}
-}
-
-// Signaling payload types used by SFU callbacks
-
-type RtcOfferPayload struct {
-	SDP string `json:"sdp"`
-}
-
-type RtcIceCandidatePayload struct {
-	Candidate     string  `json:"candidate"`
-	SDPMid        *string `json:"sdpMid,omitempty"`
-	SDPMLineIndex *uint16 `json:"sdpMLineIndex,omitempty"`
 }

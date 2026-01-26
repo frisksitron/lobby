@@ -11,19 +11,22 @@ import (
 // SignalingCallback is called when the SFU needs to send a message to a client
 type SignalingCallback func(userID string, eventType string, payload interface{})
 
+type RtcOfferPayload struct {
+	SDP string `json:"sdp"`
+}
+
+type RtcIceCandidatePayload struct {
+	Candidate     string  `json:"candidate"`
+	SDPMid        *string `json:"sdpMid,omitempty"`
+	SDPMLineIndex *uint16 `json:"sdpMLineIndex,omitempty"`
+}
+
 // SFU manages WebRTC peer connections for voice chat
 type SFU struct {
-	config *Config
-	api    *webrtc.API
-	mu     sync.RWMutex
-
-	// peers maps userID -> peer connection
-	peers map[string]*Peer
-
-	// trackRouter manages track forwarding
-	trackRouter *TrackRouter
-
-	// signalingCallback is called to send messages to clients
+	config            *Config
+	api               *webrtc.API
+	mu                sync.RWMutex
+	peers             map[string]*Peer
 	signalingCallback SignalingCallback
 }
 
@@ -51,14 +54,12 @@ func New(config *Config) (*SFU, error) {
 	)
 
 	return &SFU{
-		config:      config,
-		api:         api,
-		peers:       make(map[string]*Peer),
-		trackRouter: NewTrackRouter(),
+		config: config,
+		api:    api,
+		peers:  make(map[string]*Peer),
 	}, nil
 }
 
-// SetSignalingCallback sets the callback for sending signaling messages
 func (s *SFU) SetSignalingCallback(cb SignalingCallback) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,9 +106,6 @@ func (s *SFU) RemovePeer(userID string) {
 	// Close peer outside lock (peer.Close() handles its own synchronization)
 	peer.Close()
 
-	// Remove from track router
-	s.trackRouter.RemoveTrack(userID)
-
 	// Update other peers (check IsClosed again since state may have changed)
 	for otherUserID, otherPeer := range otherPeers {
 		if otherPeer.IsClosed() {
@@ -122,14 +120,12 @@ func (s *SFU) RemovePeer(userID string) {
 	log.Printf("[SFU] Removed peer %s", userID)
 }
 
-// GetPeer returns a peer by user ID
 func (s *SFU) GetPeer(userID string) *Peer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.peers[userID]
 }
 
-// GetParticipantIDs returns IDs of all participants except the specified user
 func (s *SFU) GetParticipantIDs(excludeUserID string) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -143,7 +139,6 @@ func (s *SFU) GetParticipantIDs(excludeUserID string) []string {
 	return ids
 }
 
-// GetConfig returns the SFU configuration
 func (s *SFU) GetConfig() *Config {
 	return s.config
 }
@@ -211,7 +206,6 @@ func (s *SFU) HandleAnswer(userID string, sdp string) error {
 	return nil
 }
 
-// HandleICECandidate adds an ICE candidate from a client
 func (s *SFU) HandleICECandidate(userID string, candidate string, sdpMid *string, sdpMLineIndex *uint16) error {
 	peer := s.GetPeer(userID)
 	if peer == nil {
@@ -241,7 +235,6 @@ func (s *SFU) HandleICECandidate(userID string, candidate string, sdpMid *string
 	return nil
 }
 
-// OnIceCandidate is called when a peer generates an ICE candidate
 func (s *SFU) OnIceCandidate(userID string, candidate *webrtc.ICECandidate) {
 	s.mu.RLock()
 	cb := s.signalingCallback
@@ -261,8 +254,6 @@ func (s *SFU) OnIceCandidate(userID string, candidate *webrtc.ICECandidate) {
 }
 
 func (s *SFU) OnPeerTrackReady(userID string, track *webrtc.TrackLocalStaticRTP) {
-	s.trackRouter.AddTrack(userID, track)
-
 	// Collect peers and their IDs under lock, then operate outside lock
 	// This avoids holding the lock during potentially slow operations
 	s.mu.RLock()
@@ -275,7 +266,6 @@ func (s *SFU) OnPeerTrackReady(userID string, track *webrtc.TrackLocalStaticRTP)
 	peer := s.peers[userID]
 	s.mu.RUnlock()
 
-	// Add track to all other peers
 	for otherUserID, otherPeer := range otherPeers {
 		if otherPeer.IsClosed() {
 			continue
@@ -286,26 +276,24 @@ func (s *SFU) OnPeerTrackReady(userID string, track *webrtc.TrackLocalStaticRTP)
 		s.triggerRenegotiation(otherUserID, otherPeer)
 	}
 
-	// Add existing tracks to the new peer
 	if peer != nil && !peer.IsClosed() {
-		existingTracks := s.trackRouter.GetAllTracksExcept(userID)
-		for sourceUserID, sourceTrack := range existingTracks {
+		addedTracks := 0
+		for sourceUserID, sourcePeer := range otherPeers {
+			sourceTrack := sourcePeer.GetLocalTrack()
+			if sourceTrack == nil {
+				continue
+			}
 			if err := peer.AddTrack(sourceUserID, sourceTrack); err != nil {
 				log.Printf("[SFU] Error adding existing track from %s to new peer %s: %v", sourceUserID, userID, err)
 			}
+			addedTracks++
 		}
-		if len(existingTracks) > 0 {
+		if addedTracks > 0 {
 			s.triggerRenegotiation(userID, peer)
 		}
 	}
 }
 
-// OnPeerClosed is called when a peer connection is closed
-func (s *SFU) OnPeerClosed(userID string) {
-	s.trackRouter.RemoveTrack(userID)
-}
-
-// triggerRenegotiation sends a new offer to a peer
 func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 	s.mu.RLock()
 	cb := s.signalingCallback
@@ -315,13 +303,11 @@ func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 		return
 	}
 
-	// Only renegotiate if in stable state
 	if !peer.NeedsRenegotiation() {
 		log.Printf("[SFU] Skipping renegotiation for %s - not in stable state", userID)
 		return
 	}
 
-	// Create new offer
 	offer, err := peer.CreateOffer()
 	if err != nil {
 		log.Printf("[SFU] Error creating offer for %s: %v", userID, err)
@@ -337,7 +323,6 @@ func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 	cb(userID, "RTC_OFFER", RtcOfferPayload{SDP: offer.SDP})
 }
 
-// Close shuts down the SFU and closes all peer connections
 func (s *SFU) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

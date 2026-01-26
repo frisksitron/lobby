@@ -14,7 +14,6 @@ const (
 	ErrKindPeerClosed
 )
 
-// PeerError wraps errors with context about the peer and operation
 type PeerError struct {
 	Kind   ErrorKind
 	PeerID string
@@ -33,7 +32,6 @@ func (e *PeerError) Unwrap() error {
 	return e.Err
 }
 
-// Sentinel errors
 var (
 	ErrPeerNotFound  = errors.New("peer not found")
 	ErrPeerNotActive = errors.New("peer not in active state")
