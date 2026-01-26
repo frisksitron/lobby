@@ -1,4 +1,4 @@
-import { TbSettings, TbUser } from "solid-icons/tb"
+import { TbOutlineSettings, TbOutlineUser } from "solid-icons/tb"
 import { type Component, Show } from "solid-js"
 import { useConnection, useServers } from "../../stores/connection"
 import { useUI } from "../../stores/ui"
@@ -20,13 +20,13 @@ const Header: Component = () => {
       <div class="flex items-center gap-2">
         <Show when={canShowAccount()}>
           <ButtonWithIcon
-            icon={<TbUser class="w-5 h-5" />}
+            icon={<TbOutlineUser class="w-5 h-5" />}
             label="Account"
             onClick={() => openModal("server-settings")}
           />
         </Show>
         <ButtonWithIcon
-          icon={<TbSettings class="w-5 h-5" />}
+          icon={<TbOutlineSettings class="w-5 h-5" />}
           label="Settings"
           onClick={() => openModal("settings")}
         />

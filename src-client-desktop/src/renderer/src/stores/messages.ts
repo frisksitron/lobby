@@ -135,9 +135,12 @@ export function useMessages() {
         params.set("before", beforeId)
       }
 
-      const data = await apiRequestCurrentServer<
-        Array<{ id: string; authorId: string; content: string; createdAt: string }> | null
-      >(`/api/v1/messages?${params}`)
+      const data = await apiRequestCurrentServer<Array<{
+        id: string
+        authorId: string
+        content: string
+        createdAt: string
+      }> | null>(`/api/v1/messages?${params}`)
 
       const historyMessages: Message[] = (data ?? []).map((msg) => ({
         id: msg.id,
@@ -160,7 +163,7 @@ export function useMessages() {
       }
       setIsInitialLoadComplete(true)
 
-      return data.length
+      return data?.length ?? 0
     } catch (error) {
       log.error("Failed to load message history:", error)
       setIsInitialLoadComplete(true)

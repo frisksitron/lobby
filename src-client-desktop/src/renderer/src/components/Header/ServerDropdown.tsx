@@ -1,4 +1,4 @@
-import { TbAlertTriangle, TbChevronDown, TbPlus } from "solid-icons/tb"
+import { TbOutlineAlertTriangle, TbOutlineChevronDown, TbOutlinePlus } from "solid-icons/tb"
 import { type Component, For, Show } from "solid-js"
 import { useConnection, useServers } from "../../stores/connection"
 import { useSession } from "../../stores/session"
@@ -60,10 +60,10 @@ const ServerDropdown: Component = () => {
             class="flex items-center gap-1 text-xs text-error"
             title="Server unavailable - reconnecting..."
           >
-            <TbAlertTriangle class="w-3.5 h-3.5" />
+            <TbOutlineAlertTriangle class="w-3.5 h-3.5" />
           </span>
         </Show>
-        <TbChevronDown
+        <TbOutlineChevronDown
           class={`w-4 h-4 flex-shrink-0 text-text-secondary transition-transform ${serverDropdownOpen() ? "rotate-180" : ""}`}
         />
       </button>
@@ -79,7 +79,7 @@ const ServerDropdown: Component = () => {
               }}
               class="w-full px-4 py-2 text-left hover:bg-surface transition-colors flex items-center gap-2"
             >
-              <TbPlus class="w-4 h-4" />
+              <TbOutlinePlus class="w-4 h-4" />
               Add Server
             </button>
           </div>

@@ -1,4 +1,4 @@
-import { TbX } from "solid-icons/tb"
+import { TbOutlineX } from "solid-icons/tb"
 import { type Component, type JSX, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import ButtonWithIcon from "./ButtonWithIcon"
@@ -33,7 +33,7 @@ const Modal: Component<ModalProps> = (props) => {
             <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
               <h2 class="text-lg font-semibold text-text-primary">{props.title}</h2>
               <ButtonWithIcon
-                icon={<TbX class="w-5 h-5" />}
+                icon={<TbOutlineX class="w-5 h-5" />}
                 size="sm"
                 onClick={props.onClose}
                 title="Close"

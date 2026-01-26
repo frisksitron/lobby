@@ -1,4 +1,4 @@
-import { TbRefresh, TbVolume } from "solid-icons/tb"
+import { TbOutlineRefresh, TbOutlineVolume } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { User } from "../../../../shared/types"
@@ -114,7 +114,7 @@ const UserCard: Component<UserCardProps> = (props) => {
             <Show when={props.user.inVoice && !props.isCurrentUser}>
               <div class="p-4 border-t border-border">
                 <div class="flex items-center gap-2 mb-3">
-                  <TbVolume class="w-4 h-4 text-text-secondary" />
+                  <TbOutlineVolume class="w-4 h-4 text-text-secondary" />
                   <span class="text-sm text-text-secondary">Volume</span>
                   <span class="ml-auto text-sm text-text-primary font-medium">{volume()}%</span>
                   <Show when={volume() !== 100}>
@@ -124,7 +124,7 @@ const UserCard: Component<UserCardProps> = (props) => {
                       class="p-1 rounded hover:bg-surface-elevated transition-colors"
                       title="Reset to 100%"
                     >
-                      <TbRefresh class="w-4 h-4 text-text-secondary" />
+                      <TbOutlineRefresh class="w-4 h-4 text-text-secondary" />
                     </button>
                   </Show>
                 </div>

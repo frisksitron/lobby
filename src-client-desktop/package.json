@@ -23,27 +23,27 @@
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0",
-    "@sapphi-red/web-noise-suppressor": "^0.3.5",
-    "@solidjs/router": "^0.15.4",
-    "electron-store": "v11.0.2",
-    "solid-icons": "^1.1.0"
+    "@electron-toolkit/preload": "3.0.2",
+    "@electron-toolkit/utils": "4.0.0",
+    "@sapphi-red/web-noise-suppressor": "0.3.5",
+    "electron-store": "11.0.2"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.12",
-    "@electron-toolkit/tsconfig": "^2.0.0",
-    "@tailwindcss/postcss": "^4.1.18",
-    "@types/node": "^22.19.1",
-    "autoprefixer": "^10.4.23",
-    "electron": "^39.2.6",
-    "electron-builder": "^26.0.12",
-    "electron-vite": "^5.0.0",
-    "postcss": "^8.5.6",
-    "solid-js": "^1.9.10",
-    "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3",
-    "vite": "^7.2.6",
-    "vite-plugin-solid": "^2.11.10"
+    "@biomejs/biome": "2.3.12",
+    "@solidjs/router": "0.15.4",
+    "@electron-toolkit/tsconfig": "2.0.0",
+    "@tailwindcss/postcss": "4.1.18",
+    "@types/node": "25.0.10",
+    "autoprefixer": "10.4.23",
+    "electron": "40.0.0",
+    "electron-builder": "26.4.0",
+    "electron-vite": "5.0.0",
+    "postcss": "8.5.6",
+    "solid-icons": "1.2.0",
+    "solid-js": "1.9.11",
+    "tailwindcss": "4.1.18",
+    "typescript": "5.9.3",
+    "vite": "7.3.1",
+    "vite-plugin-solid": "2.11.10"
   }
 }

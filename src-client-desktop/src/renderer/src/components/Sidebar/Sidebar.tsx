@@ -1,11 +1,11 @@
 import {
-  TbHeadphones,
-  TbHeadphonesOff,
-  TbHeadset,
-  TbMicrophone,
-  TbMicrophoneOff,
-  TbPhoneX,
-  TbVolume
+  TbOutlineHeadphones,
+  TbOutlineHeadphonesOff,
+  TbOutlineHeadset,
+  TbOutlineMicrophone,
+  TbOutlineMicrophoneOff,
+  TbOutlinePhoneX,
+  TbOutlineVolume
 } from "solid-icons/tb"
 import { type Component, createMemo, createSignal, For, onMount, Show } from "solid-js"
 import type { User } from "../../../../shared/types"
@@ -48,7 +48,7 @@ const MemberItem: Component<MemberItemProps> = (props) => {
         size="sm"
       />
       <Show when={props.inVoice}>
-        <TbHeadphones class="w-4 h-4 text-success" />
+        <TbOutlineHeadphones class="w-4 h-4 text-success" />
       </Show>
     </div>
   )
@@ -89,7 +89,7 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
       />
       <Show when={showVolumeBadge()}>
         <div class="flex items-center gap-0.5 text-xs text-text-secondary">
-          <TbVolume class="w-3 h-3" />
+          <TbOutlineVolume class="w-3 h-3" />
           <span>{volume()}%</span>
         </div>
       </Show>
@@ -97,10 +97,10 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
       <Show when={props.user.voiceDeafened || props.user.voiceMuted}>
         <div class="ml-auto">
           <Show when={props.user.voiceDeafened}>
-            <TbHeadphonesOff class="w-4 h-4 text-error" />
+            <TbOutlineHeadphonesOff class="w-4 h-4 text-error" />
           </Show>
           <Show when={!props.user.voiceDeafened && props.user.voiceMuted}>
-            <TbMicrophoneOff class="w-4 h-4 text-error" />
+            <TbOutlineMicrophoneOff class="w-4 h-4 text-error" />
           </Show>
         </div>
       </Show>
@@ -116,9 +116,9 @@ const VoiceControlsRow: Component = () => {
       <ButtonWithIcon
         icon={
           localVoice().muted ? (
-            <TbMicrophoneOff class="w-5 h-5" />
+            <TbOutlineMicrophoneOff class="w-5 h-5" />
           ) : (
-            <TbMicrophone class="w-5 h-5" />
+            <TbOutlineMicrophone class="w-5 h-5" />
           )
         }
         variant={localVoice().muted ? "danger" : "secondary"}
@@ -130,9 +130,9 @@ const VoiceControlsRow: Component = () => {
       <ButtonWithIcon
         icon={
           localVoice().deafened ? (
-            <TbHeadphonesOff class="w-5 h-5" />
+            <TbOutlineHeadphonesOff class="w-5 h-5" />
           ) : (
-            <TbHeadphones class="w-5 h-5" />
+            <TbOutlineHeadphones class="w-5 h-5" />
           )
         }
         variant={localVoice().deafened ? "danger" : "secondary"}
@@ -143,7 +143,7 @@ const VoiceControlsRow: Component = () => {
 
       <Button variant="danger" class="flex-1" onClick={leaveVoice}>
         <span class="flex items-center justify-center gap-2">
-          <TbPhoneX class="w-4 h-4" />
+          <TbOutlinePhoneX class="w-4 h-4" />
           Leave
         </span>
       </Button>
@@ -220,7 +220,7 @@ const Sidebar: Component = () => {
                 disabled={!canJoinVoice()}
               >
                 <span class="flex items-center justify-center gap-2">
-                  <TbHeadset class="w-4 h-4" />
+                  <TbOutlineHeadset class="w-4 h-4" />
                   {isServerUnavailable() ? "Unavailable" : "Join Voice"}
                 </span>
               </Button>

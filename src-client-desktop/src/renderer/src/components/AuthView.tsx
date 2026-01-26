@@ -1,4 +1,4 @@
-import { TbArrowLeft } from "solid-icons/tb"
+import { TbOutlineArrowLeft } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, Match, Show, Switch } from "solid-js"
 import { useAuthFlow } from "../stores/auth-flow"
 import { useConnection } from "../stores/connection"
@@ -161,7 +161,7 @@ const AuthView: Component = () => {
                 <div class="flex gap-2 justify-between pt-2">
                   <Show when={!isReauthMode()}>
                     <Button variant="ghost" onClick={() => authFlow.goBack(isReauthMode())}>
-                      <TbArrowLeft class="w-4 h-4 mr-1" />
+                      <TbOutlineArrowLeft class="w-4 h-4 mr-1" />
                       Change server
                     </Button>
                   </Show>
@@ -289,7 +289,7 @@ const AuthView: Component = () => {
 
                 <div class="flex gap-2 justify-between pt-2">
                   <Button variant="ghost" onClick={() => authFlow.goBack(isReauthMode())}>
-                    <TbArrowLeft class="w-4 h-4 mr-1" />
+                    <TbOutlineArrowLeft class="w-4 h-4 mr-1" />
                     Back
                   </Button>
                   <Button
