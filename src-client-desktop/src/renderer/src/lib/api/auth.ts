@@ -99,20 +99,3 @@ export async function updateMe(
     body: data
   })
 }
-
-// Check if a username is available
-export async function checkUsernameAvailable(
-  serverUrl: string,
-  username: string
-): Promise<boolean> {
-  try {
-    const data = await publicRequest<{ available: boolean }>(
-      serverUrl,
-      `/api/v1/users/check-username?username=${encodeURIComponent(username)}`
-    )
-    return data.available ?? true
-  } catch {
-    // If endpoint doesn't exist or errors, assume available
-    return true
-  }
-}

@@ -4,12 +4,6 @@ import { createLogger } from "../lib/logger"
 
 const log = createLogger("Settings")
 
-// Type for audio devices
-interface AudioDevices {
-  inputDevices: MediaDeviceInfo[]
-  outputDevices: MediaDeviceInfo[]
-}
-
 // Default settings (mirrors main process defaults)
 const DEFAULT_SETTINGS: AppSettings = {
   inputDevice: "default",
@@ -25,12 +19,6 @@ export type { AppSettings, NoiseSuppressionAlgorithm }
 // Reactive settings signal
 const [settings, setSettings] = createSignal<AppSettings>(DEFAULT_SETTINGS)
 const [isLoading, setIsLoading] = createSignal(true)
-
-// Audio devices signal
-const [audioDevices, setAudioDevices] = createSignal<AudioDevices>({
-  inputDevices: [],
-  outputDevices: []
-})
 
 export function useSettings() {
   // Load settings from electron-store via IPC
@@ -73,19 +61,6 @@ export function useSettings() {
     }
   }
 
-  // Load available audio devices
-  const loadAudioDevices = async (): Promise<void> => {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      setAudioDevices({
-        inputDevices: devices.filter((d) => d.kind === "audioinput"),
-        outputDevices: devices.filter((d) => d.kind === "audiooutput")
-      })
-    } catch (error) {
-      log.error("Failed to enumerate audio devices:", error)
-    }
-  }
-
   // Get volume for a specific user (0-200, defaults to 100)
   const getUserVolume = (userId: string): number => {
     return settings().userVolumes[userId] ?? 100
@@ -113,8 +88,6 @@ export function useSettings() {
     loadSettings,
     updateSetting,
     resetSettings,
-    audioDevices,
-    loadAudioDevices,
     getUserVolume,
     setUserVolume
   }

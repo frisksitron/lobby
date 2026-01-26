@@ -13,7 +13,6 @@
 import { createSignal } from "solid-js"
 import type { User } from "../../../shared/types"
 import {
-  checkUsernameAvailable as apiCheckUsername,
   getServerInfo as apiGetServerInfo,
   requestMagicCode as apiRequestMagicCode,
   updateMe as apiUpdateMe,
@@ -207,18 +206,6 @@ async function verifyMagicCode(code: string): Promise<AuthResult | null> {
 }
 
 /**
- * Check if username is available
- */
-async function checkUsername(username: string): Promise<boolean> {
-  try {
-    return await apiCheckUsername(serverUrl(), username)
-  } catch {
-    // If check fails, assume available
-    return true
-  }
-}
-
-/**
  * Complete registration with username.
  * Returns AuthResult on success, null on failure.
  */
@@ -312,7 +299,6 @@ export function useAuthFlow() {
     connectToServer,
     startEmailAuth,
     verifyMagicCode,
-    checkUsername,
     completeRegistration,
     goBack,
     setStep: (s: AuthFlowStep) => {

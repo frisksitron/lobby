@@ -8,6 +8,8 @@ import Message from "./Message"
 const MessageFeed: Component = () => {
   let feedRef: HTMLDivElement | undefined
   let sentinelRef: HTMLDivElement | undefined
+  // Imperative scroll state - intentionally not reactive as these are only
+  // used in scroll event handlers and should not trigger re-renders
   let isUserNearBottom = true
   let isLoadingMore = false
 

@@ -8,7 +8,7 @@ import UserIdentity from "../shared/UserIdentity"
 import VolumeSlider from "../shared/VolumeSlider"
 
 interface UserCardProps {
-  user: User
+  user: User | undefined
   isOpen: boolean
   onClose: () => void
   anchorRect: DOMRect | null
@@ -38,6 +38,7 @@ const UserCard: Component<UserCardProps> = (props) => {
 
   // Handle volume change
   const handleVolumeChange = (newVolume: number): void => {
+    if (!props.user) return
     setVolume(newVolume)
     audioManager.setUserVolume(props.user.id, newVolume)
     setUserVolume(props.user.id, newVolume)
@@ -85,60 +86,62 @@ const UserCard: Component<UserCardProps> = (props) => {
   }
 
   return (
-    <Show when={props.isOpen}>
-      <Portal>
-        <div class="fixed inset-0 z-50" onClick={handleBackdropClick}>
-          <div
-            class="w-[280px] bg-surface rounded-lg shadow-xl border border-border overflow-hidden"
-            style={cardStyle()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header with avatar and name */}
-            <div class="bg-surface-elevated p-4">
-              <UserIdentity
-                name={props.user.username}
-                avatarUrl={props.user.avatarUrl}
-                status={props.user.status}
-                size="lg"
-                speaking={props.user.voiceSpeaking}
-                nameClass="text-lg font-semibold"
-              />
-              <Show when={props.user.createdAt}>
-                <p class="text-xs text-text-secondary mt-2">
-                  Member since {formatMemberSince(props.user.createdAt || "")}
-                </p>
+    <Show when={props.isOpen && props.user} keyed>
+      {(user) => (
+        <Portal>
+          <div class="fixed inset-0 z-50" onClick={handleBackdropClick}>
+            <div
+              class="w-[280px] bg-surface rounded-lg shadow-xl border border-border overflow-hidden"
+              style={cardStyle()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header with avatar and name */}
+              <div class="bg-surface-elevated p-4">
+                <UserIdentity
+                  name={user.username}
+                  avatarUrl={user.avatarUrl}
+                  status={user.status}
+                  size="lg"
+                  speaking={user.voiceSpeaking}
+                  nameClass="text-lg font-semibold"
+                />
+                <Show when={user.createdAt}>
+                  <p class="text-xs text-text-secondary mt-2">
+                    Member since {formatMemberSince(user.createdAt || "")}
+                  </p>
+                </Show>
+              </div>
+
+              {/* Volume controls - only shown when user is in voice and not self */}
+              <Show when={user.inVoice && !props.isCurrentUser}>
+                <div class="p-4 border-t border-border">
+                  <div class="flex items-center gap-2 mb-3">
+                    <TbOutlineVolume class="w-4 h-4 text-text-secondary" />
+                    <span class="text-sm text-text-secondary">Volume</span>
+                    <span class="ml-auto text-sm text-text-primary font-medium">{volume()}%</span>
+                    <Show when={volume() !== 100}>
+                      <button
+                        type="button"
+                        onClick={handleResetVolume}
+                        class="p-1 rounded hover:bg-surface-elevated transition-colors"
+                        title="Reset to 100%"
+                      >
+                        <TbOutlineRefresh class="w-4 h-4 text-text-secondary" />
+                      </button>
+                    </Show>
+                  </div>
+                  <VolumeSlider value={volume()} onChange={handleVolumeChange} min={0} max={200} />
+                  <div class="flex justify-between text-xs text-text-secondary mt-1">
+                    <span>0%</span>
+                    <span>100%</span>
+                    <span>200%</span>
+                  </div>
+                </div>
               </Show>
             </div>
-
-            {/* Volume controls - only shown when user is in voice and not self */}
-            <Show when={props.user.inVoice && !props.isCurrentUser}>
-              <div class="p-4 border-t border-border">
-                <div class="flex items-center gap-2 mb-3">
-                  <TbOutlineVolume class="w-4 h-4 text-text-secondary" />
-                  <span class="text-sm text-text-secondary">Volume</span>
-                  <span class="ml-auto text-sm text-text-primary font-medium">{volume()}%</span>
-                  <Show when={volume() !== 100}>
-                    <button
-                      type="button"
-                      onClick={handleResetVolume}
-                      class="p-1 rounded hover:bg-surface-elevated transition-colors"
-                      title="Reset to 100%"
-                    >
-                      <TbOutlineRefresh class="w-4 h-4 text-text-secondary" />
-                    </button>
-                  </Show>
-                </div>
-                <VolumeSlider value={volume()} onChange={handleVolumeChange} min={0} max={200} />
-                <div class="flex justify-between text-xs text-text-secondary mt-1">
-                  <span>0%</span>
-                  <span>100%</span>
-                  <span>200%</span>
-                </div>
-              </div>
-            </Show>
           </div>
-        </div>
-      </Portal>
+        </Portal>
+      )}
     </Show>
   )
 }

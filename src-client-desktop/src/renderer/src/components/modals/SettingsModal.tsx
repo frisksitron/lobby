@@ -1,3 +1,4 @@
+import { createMicrophones, createSpeakers } from "@solid-primitives/devices"
 import { type Component, createEffect, For, on } from "solid-js"
 import { COMMUNICATIONS_DEVICE_PREFIX, DEFAULT_DEVICE_PREFIX } from "../../lib/constants/devices"
 import { webrtcManager } from "../../lib/webrtc"
@@ -28,14 +29,16 @@ const getDefaultDeviceName = (devices: MediaDeviceInfo[]): string | null => {
 }
 
 const SettingsModal: Component<SettingsModalProps> = (props) => {
-  const { settings, loadSettings, updateSetting, isLoading, audioDevices, loadAudioDevices } =
-    useSettings()
+  const { settings, loadSettings, updateSetting, isLoading } = useSettings()
 
-  // Load settings and audio devices when modal opens
+  // Reactive device lists - automatically update when devices are plugged/unplugged
+  const microphones = createMicrophones()
+  const speakers = createSpeakers()
+
+  // Load settings when modal opens (audio devices update automatically via solid-primitives)
   createEffect(() => {
     if (props.isOpen) {
       loadSettings()
-      loadAudioDevices()
     }
   })
 
@@ -43,7 +46,9 @@ const SettingsModal: Component<SettingsModalProps> = (props) => {
   createEffect(
     on(
       () => settings().noiseSuppression,
-      (algorithm) => {
+      (algorithm, prev) => {
+        // Only update if value actually changed (loadSettings triggers signal update even with same value)
+        if (algorithm === prev) return
         // Only update if webrtc is active (will be no-op if not in voice)
         webrtcManager.updateNoiseSuppressionSettings(algorithm !== "none", algorithm)
       },
@@ -52,10 +57,10 @@ const SettingsModal: Component<SettingsModalProps> = (props) => {
   )
 
   // Get filtered device lists and default names
-  const inputDevices = () => getPhysicalDevices(audioDevices().inputDevices)
-  const outputDevices = () => getPhysicalDevices(audioDevices().outputDevices)
-  const defaultInputName = () => getDefaultDeviceName(audioDevices().inputDevices)
-  const defaultOutputName = () => getDefaultDeviceName(audioDevices().outputDevices)
+  const inputDevices = () => getPhysicalDevices(microphones())
+  const outputDevices = () => getPhysicalDevices(speakers())
+  const defaultInputName = () => getDefaultDeviceName(microphones())
+  const defaultOutputName = () => getDefaultDeviceName(speakers())
 
   return (
     <Modal isOpen={props.isOpen} onClose={props.onClose} title="Settings">

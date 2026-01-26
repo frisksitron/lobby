@@ -15,8 +15,6 @@ const AuthView: Component = () => {
   const [serverUrlInput, setServerUrlInput] = createSignal("")
   const [emailInput, setEmailInput] = createSignal("")
   const [usernameInput, setUsernameInput] = createSignal("")
-  const [usernameAvailable, setUsernameAvailable] = createSignal<boolean | null>(null)
-  const [checkingUsername, setCheckingUsername] = createSignal(false)
   const [codeInput, setCodeInput] = createSignal("")
 
   // Start auth flow when view is shown (needs_auth or disconnected)
@@ -27,25 +25,9 @@ const AuthView: Component = () => {
       })
       setServerUrlInput("")
       setUsernameInput("")
-      setUsernameAvailable(null)
       setCodeInput("")
     }
   })
-
-  let usernameCheckTimeout: number | undefined
-  const checkUsernameAvailability = async (username: string) => {
-    clearTimeout(usernameCheckTimeout)
-    if (username.length < 3) {
-      setUsernameAvailable(null)
-      return
-    }
-    setCheckingUsername(true)
-    usernameCheckTimeout = window.setTimeout(async () => {
-      const available = await authFlow.checkUsername(username)
-      setUsernameAvailable(available)
-      setCheckingUsername(false)
-    }, 300)
-  }
 
   const handleServerSubmit = (e: Event) => {
     e.preventDefault()
@@ -59,16 +41,14 @@ const AuthView: Component = () => {
 
   const handleRegisterSubmit = async (e: Event) => {
     e.preventDefault()
-    if (usernameAvailable()) {
-      const result = await authFlow.completeRegistration(usernameInput())
-      if (result) {
-        await connection.onAuthSuccess(
-          result.user,
-          result.serverUrl,
-          result.serverInfo,
-          result.tokens
-        )
-      }
+    const result = await authFlow.completeRegistration(usernameInput())
+    if (result) {
+      await connection.onAuthSuccess(
+        result.user,
+        result.serverUrl,
+        result.serverInfo,
+        result.tokens
+      )
     }
   }
 
@@ -261,26 +241,12 @@ const AuthView: Component = () => {
                   <input
                     type="text"
                     value={usernameInput()}
-                    onInput={(e) => {
-                      setUsernameInput(e.currentTarget.value)
-                      checkUsernameAvailability(e.currentTarget.value)
-                    }}
+                    onInput={(e) => setUsernameInput(e.currentTarget.value)}
                     placeholder="Choose a username"
                     class="w-full bg-surface-elevated border border-border rounded px-3 py-2 text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent"
                     minLength={3}
                     required
                   />
-                  <Show when={usernameInput().length >= 3}>
-                    <div class="mt-1 text-sm">
-                      {checkingUsername() ? (
-                        <span class="text-text-secondary">Checking...</span>
-                      ) : usernameAvailable() === true ? (
-                        <span class="text-success">Username available</span>
-                      ) : usernameAvailable() === false ? (
-                        <span class="text-error">Username taken</span>
-                      ) : null}
-                    </div>
-                  </Show>
                 </div>
 
                 <Show when={authFlow.authError()}>
@@ -295,7 +261,7 @@ const AuthView: Component = () => {
                   <Button
                     type="submit"
                     variant="primary"
-                    disabled={authFlow.isLoading() || !usernameAvailable()}
+                    disabled={authFlow.isLoading() || usernameInput().length < 3}
                   >
                     {authFlow.isLoading() ? <Spinner /> : "Complete Registration"}
                   </Button>

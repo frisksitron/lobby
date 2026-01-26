@@ -287,11 +287,11 @@ const Sidebar: Component = () => {
 
       {/* UserCard popover */}
       <UserCard
-        user={selectedUser()?.user as User}
+        user={selectedUser()?.user}
         isOpen={selectedUser() !== null}
         onClose={handleCloseUserCard}
         anchorRect={selectedUser()?.rect ?? null}
-        isCurrentUser={selectedUser()?.user.id === currentUserId()}
+        isCurrentUser={selectedUser()?.user?.id === currentUserId()}
       />
     </div>
   )

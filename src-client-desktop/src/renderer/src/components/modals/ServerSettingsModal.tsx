@@ -1,5 +1,5 @@
 import { type Component, createEffect, createSignal } from "solid-js"
-import { checkUsernameAvailable, updateMe } from "../../lib/api/auth"
+import { updateMe } from "../../lib/api/auth"
 import { getValidToken } from "../../lib/auth/token-manager"
 import { createLogger } from "../../lib/logger"
 import { getServerUrl, updateCurrentUser, useConnection, useServers } from "../../stores/connection"
@@ -57,14 +57,6 @@ const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
 
       if (!serverUrl || !token) {
         setSaveError("Not authenticated")
-        setIsSaving(false)
-        return
-      }
-
-      // Check if username is available
-      const available = await checkUsernameAvailable(serverUrl, newUsername)
-      if (!available) {
-        setSaveError("Username is already taken")
         setIsSaving(false)
         return
       }
