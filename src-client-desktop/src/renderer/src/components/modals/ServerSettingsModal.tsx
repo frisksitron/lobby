@@ -5,6 +5,7 @@ import { createLogger } from "../../lib/logger"
 import { useConnection, useServers } from "../../stores/core"
 import { useUI } from "../../stores/ui"
 import Button from "../shared/Button"
+import DialogFooter from "../shared/DialogFooter"
 import FormField, { INPUT_CLASS } from "../shared/FormField"
 import Modal from "../shared/Modal"
 
@@ -23,7 +24,6 @@ const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
   const [username, setUsername] = createSignal("")
   const [isSaving, setIsSaving] = createSignal(false)
   const [saveError, setSaveError] = createSignal<string | null>(null)
-  const [saveSuccess, setSaveSuccess] = createSignal(false)
 
   // Reset username field when modal opens
   createEffect(() => {
@@ -31,7 +31,6 @@ const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
       const user = currentUser()
       setUsername(user?.username || "")
       setSaveError(null)
-      setSaveSuccess(false)
     }
   })
 
@@ -49,7 +48,6 @@ const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
 
     setIsSaving(true)
     setSaveError(null)
-    setSaveSuccess(false)
 
     try {
       const serverUrl = getServerUrl()
@@ -69,9 +67,6 @@ const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
 
       // Update local state
       updateCurrentUser(updatedUser)
-
-      setSaveSuccess(true)
-      setTimeout(() => setSaveSuccess(false), 2000)
     } catch (error) {
       log.error("Failed to update username:", error)
       setSaveError("Failed to update username")
@@ -98,48 +93,45 @@ const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
   }
 
   return (
-    <Modal isOpen={props.isOpen} onClose={props.onClose} title="Server Settings">
+    <Modal isOpen={props.isOpen} onClose={props.onClose} title="Account">
       <div class="space-y-6">
         <section>
-          <h3 class="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-            Your Profile
-          </h3>
-          <div class="border-t border-border pt-4">
-            <FormField label="Username" error={saveError() || undefined}>
-              <div class="flex gap-2">
-                <input
-                  type="text"
-                  value={username()}
-                  onInput={(e) => setUsername(e.currentTarget.value)}
-                  class={`flex-1 ${INPUT_CLASS.replace("w-full ", "")}`}
-                  placeholder="Enter username"
-                />
-                <Button
-                  variant="primary"
-                  onClick={handleSaveUsername}
-                  disabled={isSaving() || username().trim() === currentUser()?.username}
-                >
-                  {isSaving() ? "Saving..." : "Save"}
-                </Button>
-              </div>
-              {saveSuccess() && <p class="text-success text-sm mt-1">Username updated!</p>}
-            </FormField>
-          </div>
+          <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Your Profile</h3>
+          <FormField label="Username" error={saveError() || undefined}>
+            <div class="flex gap-2">
+              <input
+                type="text"
+                value={username()}
+                onInput={(e) => setUsername(e.currentTarget.value)}
+                class={`flex-1 ${INPUT_CLASS.replace("w-full ", "")}`}
+                placeholder="Enter username"
+              />
+              <Button
+                variant="primary"
+                onClick={handleSaveUsername}
+                disabled={isSaving() || username().trim() === currentUser()?.username}
+              >
+                Save
+              </Button>
+            </div>
+          </FormField>
         </section>
 
         <section>
-          <h3 class="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-            Account
-          </h3>
-          <div class="border-t border-border pt-4">
-            <Button variant="danger" onClick={handleLeaveServer}>
-              Leave Server
-            </Button>
-            <p class="text-text-secondary text-sm mt-2">
-              Remove yourself from this server, you can rejoin later.
-            </p>
-          </div>
+          <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Account</h3>
+          <Button variant="danger" onClick={handleLeaveServer}>
+            Leave Server
+          </Button>
+          <p class="text-text-secondary text-sm mt-2">
+            Remove yourself from this server, you can rejoin later.
+          </p>
         </section>
+
+        <DialogFooter>
+          <Button variant="primary" onClick={props.onClose}>
+            Done
+          </Button>
+        </DialogFooter>
       </div>
     </Modal>
   )

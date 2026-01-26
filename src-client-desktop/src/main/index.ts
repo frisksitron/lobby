@@ -1,6 +1,6 @@
 import { join } from "node:path"
 import { electronApp, is, optimizer } from "@electron-toolkit/utils"
-import { app, BrowserWindow, ipcMain, Menu, safeStorage, shell, Tray } from "electron"
+import { app, BrowserWindow, ipcMain, Menu, safeStorage, screen, shell, Tray } from "electron"
 import Store from "electron-store"
 import icon from "../../resources/icon.png?asset"
 import { createLogger } from "./logger"
@@ -31,10 +31,19 @@ interface ServerEntry {
   iconUrl?: string
 }
 
+interface WindowBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+  isMaximized: boolean
+}
+
 interface StoreSchema {
   encryptedTokens: string | null
   settings: AppSettings
   servers: ServerEntry[]
+  windowBounds: WindowBounds | null
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -59,17 +68,49 @@ const store = new Store<StoreSchema>({
   defaults: {
     encryptedTokens: null,
     settings: DEFAULT_SETTINGS,
-    servers: []
+    servers: [],
+    windowBounds: null
   }
 })
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
+function getValidBounds(): WindowBounds | null {
+  const saved = store.get("windowBounds")
+  if (!saved) return null
+
+  const displays = screen.getAllDisplays()
+  const isOnScreen = displays.some((display) => {
+    const { x, y, width, height } = display.bounds
+    return saved.x >= x && saved.x < x + width && saved.y >= y && saved.y < y + height
+  })
+
+  return isOnScreen ? saved : null
+}
+
+function saveBounds(): void {
+  if (!mainWindow || mainWindow.isMaximized() || mainWindow.isMinimized()) {
+    if (mainWindow?.isMaximized()) {
+      const current = store.get("windowBounds")
+      if (current) {
+        store.set("windowBounds", { ...current, isMaximized: true })
+      }
+    }
+    return
+  }
+  const bounds = mainWindow.getBounds()
+  store.set("windowBounds", { ...bounds, isMaximized: false })
+}
+
 function createWindow(): void {
+  const savedBounds = getValidBounds()
+
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: savedBounds?.width ?? 900,
+    height: savedBounds?.height ?? 670,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     minWidth: 480,
     minHeight: 400,
     show: false,
@@ -83,8 +124,14 @@ function createWindow(): void {
   })
 
   mainWindow.on("ready-to-show", () => {
+    if (savedBounds?.isMaximized) {
+      mainWindow?.maximize()
+    }
     mainWindow?.show()
   })
+
+  mainWindow.on("resize", saveBounds)
+  mainWindow.on("move", saveBounds)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)

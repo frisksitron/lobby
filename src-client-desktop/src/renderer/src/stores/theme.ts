@@ -53,7 +53,13 @@ export function useTheme() {
    * Get an avatar color based on a name hash
    */
   const getAvatarColor = (name: string): string => {
-    return themeManager.getAvatarColorFromString(name)
+    const theme = currentTheme()
+    const colors = theme.colors.avatarColors
+    let hash = 0
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash)
+    }
+    return colors[Math.abs(hash) % colors.length]
   }
 
   return {

@@ -8,8 +8,7 @@ import ServerSettingsModal from "./components/modals/ServerSettingsModal"
 import SettingsModal from "./components/modals/SettingsModal"
 import Sidebar from "./components/Sidebar/Sidebar"
 import ConfirmDialog from "./components/shared/ConfirmDialog"
-import ToastContainer from "./components/shared/Toast"
-import { useConnection } from "./stores/core"
+import { useConnection, useServers } from "./stores/core"
 import { useTheme } from "./stores/theme"
 import { useUI } from "./stores/ui"
 
@@ -34,6 +33,7 @@ const AppContent: Component = () => {
     closeConfirmDialog
   } = useUI()
   const connection = useConnection()
+  const { activeServerId } = useServers()
   const { loadTheme } = useTheme()
 
   const showAuth = () => connection.needsAuth() || connection.connectionState() === "disconnected"
@@ -60,7 +60,9 @@ const AppContent: Component = () => {
           </Match>
           <Match when={connection.connectionState() === "connected"}>
             <Suspense fallback={null}>
-              <MainUI />
+              <Show when={activeServerId()} keyed>
+                {(_serverId) => <MainUI />}
+              </Show>
             </Suspense>
           </Match>
         </Switch>
@@ -83,7 +85,6 @@ const AppContent: Component = () => {
           />
         )}
       </Show>
-      <ToastContainer />
     </div>
   )
 }

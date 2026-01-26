@@ -22,7 +22,6 @@ import {
   type VoiceSpeakingPayload,
   wsManager
 } from "../lib/ws"
-import { showToast } from "./ui"
 
 const log = createLogger("Core")
 
@@ -159,7 +158,7 @@ function handleVoiceStateUpdate(payload: {
   const wasInVoiceChannel = previousUser?.inVoice ?? false
   const isNowInVoice = payload.in_voice
 
-  if (!isCurrentUser && wasInVoiceChannel !== isNowInVoice) {
+  if (!isCurrentUser && wasInVoiceChannel !== isNowInVoice && localVoice().inVoice) {
     playSound(isNowInVoice ? "user-join" : "user-leave")
   }
 
@@ -459,7 +458,6 @@ function setupWSListeners(): (() => void)[] {
             voiceDeafened: confirmedDeafened
           })
         }
-        showToast("Too many toggles, try again in a moment", "warning")
       } else if (payload.code === "VOICE_JOIN_COOLDOWN") {
         if (userId) {
           setLocalVoice({ inVoice: false, muted: false, deafened: false })
@@ -470,7 +468,6 @@ function setupWSListeners(): (() => void)[] {
             voiceSpeaking: false
           })
         }
-        showToast("Joining too fast, slow down", "warning")
       }
     })
   )
@@ -729,11 +726,12 @@ function getServerUrl(): string | null {
 function updateCurrentUser(updates: Partial<User>): void {
   const userId = currentUserId()
   if (userId) {
-    const user = users[userId]
-    if (user) {
-      const updated = { ...user, ...updates }
-      addUser(updated)
-    }
+    // Only update profile fields from API responses, not session state
+    const profileUpdates: Partial<User> = {}
+    if (updates.username !== undefined) profileUpdates.username = updates.username
+    if (updates.avatarUrl !== undefined) profileUpdates.avatarUrl = updates.avatarUrl
+    if (updates.email !== undefined) profileUpdates.email = updates.email
+    updateUser(userId, profileUpdates)
   }
 }
 

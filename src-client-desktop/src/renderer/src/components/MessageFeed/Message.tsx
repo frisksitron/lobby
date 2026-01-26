@@ -55,7 +55,7 @@ const Message: Component<MessageProps> = (props) => {
         when={isFirstInGroup()}
         fallback={
           <div class="flex items-center">
-            <span class="w-[52px] text-[10px] text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity text-right pr-2">
+            <span class="w-[52px] text-xs text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity text-right pr-2">
               {formatShortTime(props.message.timestamp)}
             </span>
             <p class="text-text-primary break-all whitespace-pre-wrap flex-1">

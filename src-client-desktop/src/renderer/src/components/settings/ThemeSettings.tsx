@@ -61,7 +61,7 @@ const ThemeSettings: Component = () => {
 
   return (
     <section>
-      <h3 class="text-sm font-semibold text-text-primary mb-3">Appearance</h3>
+      <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Appearance</h3>
       <div class="space-y-2">
         <For each={getAvailableThemes()}>
           {(theme) => (

@@ -68,7 +68,7 @@ const SettingsModal: Component<SettingsModalProps> = (props) => {
         <ThemeSettings />
 
         <section>
-          <h3 class="text-sm font-semibold text-text-primary mb-3">Voice Settings</h3>
+          <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Voice Settings</h3>
 
           <div class="space-y-4">
             <FormField label="Input Device">

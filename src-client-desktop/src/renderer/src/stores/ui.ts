@@ -11,28 +11,9 @@ export interface ConfirmDialogConfig {
   onConfirm: () => void
 }
 
-export interface Toast {
-  id: string
-  message: string
-  variant: "error" | "warning" | "info"
-}
-
-const TOAST_DURATION_MS = 3000
-
 const [activeModal, setActiveModal] = createSignal<ModalType>(null)
 const [serverDropdownOpen, setServerDropdownOpen] = createSignal(false)
 const [confirmDialog, setConfirmDialog] = createSignal<ConfirmDialogConfig | null>(null)
-const [toasts, setToasts] = createSignal<Toast[]>([])
-
-let toastCounter = 0
-
-export function showToast(message: string, variant: Toast["variant"] = "info"): void {
-  const id = `toast-${++toastCounter}`
-  setToasts((prev) => [...prev, { id, message, variant }])
-  setTimeout(() => {
-    setToasts((prev) => prev.filter((t) => t.id !== id))
-  }, TOAST_DURATION_MS)
-}
 
 export function useUI() {
   return {
@@ -46,8 +27,6 @@ export function useUI() {
 
     confirmDialog,
     showConfirmDialog: (config: ConfirmDialogConfig) => setConfirmDialog(config),
-    closeConfirmDialog: () => setConfirmDialog(null),
-
-    toasts
+    closeConfirmDialog: () => setConfirmDialog(null)
   }
 }

@@ -10,15 +10,9 @@ interface UserIdentityProps {
   nameClass?: string // Optional override for name styling
 }
 
-const defaultNameClasses = {
-  sm: "text-sm",
-  md: "text-sm",
-  lg: "text-lg font-semibold"
-}
-
 const UserIdentity: Component<UserIdentityProps> = (props) => {
   const size = () => props.size || "md"
-  const nameClass = () => props.nameClass || defaultNameClasses[size()]
+  const nameClass = () => props.nameClass || "text-sm"
 
   return (
     <div class="flex items-center gap-3 min-w-0">

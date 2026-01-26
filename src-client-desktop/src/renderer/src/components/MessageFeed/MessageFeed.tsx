@@ -1,4 +1,13 @@
-import { type Component, createEffect, createMemo, For, onCleanup, onMount, Show } from "solid-js"
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show
+} from "solid-js"
 import { useServers } from "../../stores/core"
 import { useMessages } from "../../stores/messages"
 import { computeMessageGrouping } from "./groupMessages"
@@ -14,6 +23,8 @@ const MessageFeed: Component = () => {
   let isUserNearBottom = true
   let isLoadingMore = false
   let hasScrolledInitially = false
+
+  const [hasNewMessages, setHasNewMessages] = createSignal(false)
 
   const { messages, loadMoreHistory, setupMessageListener, isLoadingHistory, hasMoreHistory } =
     useMessages()
@@ -42,6 +53,14 @@ const MessageFeed: Component = () => {
 
   const handleScroll = (): void => {
     isUserNearBottom = checkIfNearBottom()
+    if (isUserNearBottom) {
+      setHasNewMessages(false)
+    }
+  }
+
+  const handleNewMessagesClick = (): void => {
+    scrollToBottom()
+    setHasNewMessages(false)
   }
 
   // Load more messages when scrolling to top
@@ -80,6 +99,17 @@ const MessageFeed: Component = () => {
       feedRef.addEventListener("scroll", handleScroll)
       onCleanup(() => feedRef?.removeEventListener("scroll", handleScroll))
     }
+
+    // Keep scroll locked to bottom during resize
+    if (feedRef) {
+      const resizeObserver = new ResizeObserver(() => {
+        if (isUserNearBottom) {
+          scrollToBottom()
+        }
+      })
+      resizeObserver.observe(feedRef)
+      onCleanup(() => resizeObserver.disconnect())
+    }
   })
 
   // Setup IntersectionObserver for infinite scroll
@@ -117,31 +147,48 @@ const MessageFeed: Component = () => {
   createEffect((prevLength: number) => {
     const currentLength = currentMessages().length
 
-    // Only scroll if new messages were added (not prepended) and user is near bottom
-    if (currentLength > prevLength && isUserNearBottom && hasScrolledInitially) {
-      requestAnimationFrame(() => scrollToBottom())
+    // Only scroll if new messages were added (not prepended via history load)
+    // isLoadingHistory() is still true when this effect runs from history load
+    if (currentLength > prevLength && hasScrolledInitially && !isLoadingHistory()) {
+      if (isUserNearBottom) {
+        requestAnimationFrame(() => scrollToBottom())
+      } else {
+        setHasNewMessages(true)
+      }
     }
 
     return currentLength
   }, 0)
 
   return (
-    <div ref={feedRef} class="flex-1 min-w-0 overflow-y-auto overflow-x-hidden pt-2 pb-8">
-      <div ref={sentinelRef} class="h-1" />
+    <div class="relative flex-1 min-h-0 flex flex-col">
+      <div ref={feedRef} class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-2 pb-8">
+        <div ref={sentinelRef} class="h-1" />
 
-      <Show when={!hasMoreHistory() && currentMessages().length > 0}>
-        <div class="py-4 text-center text-sm text-text-secondary">Beginning of conversation</div>
+        <Show when={!hasMoreHistory() && currentMessages().length > 0}>
+          <div class="py-4 text-center text-sm text-text-secondary">Beginning of conversation</div>
+        </Show>
+
+        <For each={groupedMessages()} fallback={<EmptyState />}>
+          {(item) => (
+            <Message
+              message={item.message}
+              isFirstInGroup={item.isFirstInGroup}
+              isLastInGroup={item.isLastInGroup}
+            />
+          )}
+        </For>
+      </div>
+
+      <Show when={hasNewMessages()}>
+        <button
+          type="button"
+          onClick={handleNewMessagesClick}
+          class="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-full shadow-lg transition-colors"
+        >
+          New messages ↓
+        </button>
       </Show>
-
-      <For each={groupedMessages()} fallback={<EmptyState />}>
-        {(item) => (
-          <Message
-            message={item.message}
-            isFirstInGroup={item.isFirstInGroup}
-            isLastInGroup={item.isLastInGroup}
-          />
-        )}
-      </For>
     </div>
   )
 }

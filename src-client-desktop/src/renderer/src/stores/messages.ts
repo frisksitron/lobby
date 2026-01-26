@@ -4,7 +4,6 @@ import { apiRequest, apiRequestCurrentServer } from "../lib/api/client"
 import { createLogger } from "../lib/logger"
 import { type ErrorPayload, type MessageCreatePayload, wsManager } from "../lib/ws"
 import { getCurrentUser, getServerUrl } from "./core"
-import { showToast } from "./ui"
 
 const log = createLogger("Messages")
 
@@ -111,7 +110,6 @@ function setupMessageListener(): (() => void)[] {
       }
       pendingMessages.delete(payload.nonce)
       setRealtimeMessages((prev) => prev.filter((msg) => msg.id !== pending.id))
-      showToast("Sending too fast", "error")
     }
   })
 
