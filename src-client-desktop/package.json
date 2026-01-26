@@ -2,10 +2,8 @@
   "name": "lobby-app",
   "version": "1.0.0",
   "type": "module",
-  "description": "An Electron application with Solid and TypeScript",
+  "description": "A self-hosted Discord alternative",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
   "scripts": {
     "check": "biome check .",
     "fix": "biome check --write .",

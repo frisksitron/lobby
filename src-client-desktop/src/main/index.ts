@@ -1,6 +1,6 @@
 import { join } from "node:path"
 import { electronApp, is, optimizer } from "@electron-toolkit/utils"
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron"
+import { app, BrowserWindow, ipcMain, Menu, safeStorage, shell, Tray } from "electron"
 import Store from "electron-store"
 import icon from "../../resources/icon.png?asset"
 import { createLogger } from "./logger"
@@ -64,6 +64,7 @@ const store = new Store<StoreSchema>({
 })
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -74,7 +75,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: INSTANCE_ID ? `Lobby (Instance ${INSTANCE_ID})` : "Lobby",
-    ...(process.platform === "linux" ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, "../preload/index.mjs"),
       sandbox: false
@@ -96,8 +97,9 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"))
   }
 
-  mainWindow.on("closed", () => {
-    mainWindow = null
+  mainWindow.on("close", (event) => {
+    event.preventDefault()
+    mainWindow?.hide()
   })
 }
 
@@ -252,13 +254,27 @@ app.whenReady().then(() => {
 
   createWindow()
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  tray = new Tray(icon)
+  tray.setToolTip("Lobby")
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Show",
+        click: () => {
+          mainWindow?.show()
+        }
+      },
+      { type: "separator" },
+      {
+        label: "Quit",
+        click: () => {
+          mainWindow?.destroy()
+          app.quit()
+        }
+      }
+    ])
+  )
+  tray.on("click", () => {
+    mainWindow?.show()
   })
-})
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit()
-  }
 })
