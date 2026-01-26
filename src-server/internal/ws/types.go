@@ -126,6 +126,7 @@ type PresenceUpdatePayload struct {
 // TypingStartPayload sent when a user starts typing (via DISPATCH)
 type TypingStartPayload struct {
 	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
 	Timestamp string `json:"timestamp"`
 }
 

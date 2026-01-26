@@ -1,7 +1,6 @@
 import { TbOutlineAlertTriangle, TbOutlineChevronDown, TbOutlinePlus } from "solid-icons/tb"
 import { type Component, For, Show } from "solid-js"
-import { useConnection, useServers } from "../../stores/connection"
-import { useSession } from "../../stores/session"
+import { useConnection, useServers, useSession } from "../../stores/core"
 import { useUI } from "../../stores/ui"
 
 const ServerDropdown: Component = () => {

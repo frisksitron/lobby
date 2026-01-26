@@ -1,8 +1,7 @@
 import { type Component, createSignal } from "solid-js"
 import { TYPING_THROTTLE_MS } from "../../lib/constants/ui"
-import { useConnection, useServers } from "../../stores/connection"
+import { useConnection, useServers, useSession } from "../../stores/core"
 import { useMessages } from "../../stores/messages"
-import { useSession } from "../../stores/session"
 
 const MessageInput: Component = () => {
   const [inputValue, setInputValue] = createSignal("")

@@ -1,7 +1,7 @@
 import { TbOutlineArrowLeft } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, Match, Show, Switch } from "solid-js"
 import { useAuthFlow } from "../stores/auth-flow"
-import { useConnection } from "../stores/connection"
+import { useConnection } from "../stores/core"
 import Button from "./shared/Button"
 
 const Spinner: Component = () => (
@@ -76,7 +76,6 @@ const AuthView: Component = () => {
 
         <div class="min-h-[200px]">
           <Switch>
-            {/* Step: Server URL */}
             <Match when={authFlow.step() === "server-url"}>
               <form onSubmit={handleServerSubmit} class="space-y-4">
                 <p class="text-sm text-text-secondary">
@@ -106,7 +105,6 @@ const AuthView: Component = () => {
               </form>
             </Match>
 
-            {/* Step: Email Input */}
             <Match when={authFlow.step() === "email-input"}>
               <form onSubmit={handleEmailSubmit} class="space-y-4">
                 <div class="text-center pb-2 border-b border-border">
@@ -155,7 +153,6 @@ const AuthView: Component = () => {
               </form>
             </Match>
 
-            {/* Step: Code Input */}
             <Match when={authFlow.step() === "code-input"}>
               <div class="flex flex-col items-center py-4 space-y-4">
                 <div class="text-center">
@@ -219,7 +216,6 @@ const AuthView: Component = () => {
               </div>
             </Match>
 
-            {/* Step: Register */}
             <Match when={authFlow.step() === "register"}>
               <form onSubmit={handleRegisterSubmit} class="space-y-4">
                 <p class="text-sm text-text-secondary">

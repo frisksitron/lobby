@@ -1,6 +1,6 @@
 import { TbOutlineSettings, TbOutlineUser } from "solid-icons/tb"
 import { type Component, Show } from "solid-js"
-import { useConnection, useServers } from "../../stores/connection"
+import { useConnection, useServers } from "../../stores/core"
 import { useUI } from "../../stores/ui"
 import ButtonWithIcon from "../shared/ButtonWithIcon"
 import ServerDropdown from "./ServerDropdown"

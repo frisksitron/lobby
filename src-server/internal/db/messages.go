@@ -46,14 +46,16 @@ func (r *MessageRepository) GetHistory(beforeID string, limit int) ([]*models.Me
 		limit = 50
 	}
 
-	query := `SELECT id, author_id, content, created_at, edited_at FROM messages`
+	query := `SELECT m.id, m.author_id, u.username, u.avatar_url, m.content, m.created_at, m.edited_at
+		FROM messages m
+		LEFT JOIN users u ON m.author_id = u.id`
 	var args []any
 
 	if beforeID != "" {
-		query += ` WHERE rowid < (SELECT rowid FROM messages WHERE id = ?)`
+		query += ` WHERE m.rowid < (SELECT rowid FROM messages WHERE id = ?)`
 		args = append(args, beforeID)
 	}
-	query += ` ORDER BY rowid DESC LIMIT ?`
+	query += ` ORDER BY m.rowid DESC LIMIT ?`
 	args = append(args, limit)
 
 	rows, err := r.db.Query(query, args...)
@@ -67,7 +69,7 @@ func (r *MessageRepository) GetHistory(beforeID string, limit int) ([]*models.Me
 		var m models.Message
 		var editedAt sql.NullTime
 
-		err := rows.Scan(&m.ID, &m.AuthorID, &m.Content, &m.CreatedAt, &editedAt)
+		err := rows.Scan(&m.ID, &m.AuthorID, &m.AuthorName, &m.AuthorAvatarURL, &m.Content, &m.CreatedAt, &editedAt)
 		if err != nil {
 			return nil, fmt.Errorf("scanning message: %w", err)
 		}

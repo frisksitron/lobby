@@ -7,13 +7,20 @@ import {
   TbOutlinePhoneX,
   TbOutlineVolume
 } from "solid-icons/tb"
-import { type Component, createMemo, createSignal, For, onMount, Show } from "solid-js"
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  onMount,
+  Show,
+  Switch
+} from "solid-js"
 import type { User } from "../../../../shared/types"
 import { audioManager } from "../../lib/webrtc"
-import { currentUser, useConnection } from "../../stores/connection"
-import { useSession } from "../../stores/session"
+import { useConnection, useSession, useUsers } from "../../stores/core"
 import { useSettings } from "../../stores/settings"
-import { getAllUsers } from "../../stores/users"
 import Button from "../shared/Button"
 import ButtonWithIcon from "../shared/ButtonWithIcon"
 import UserIdentity from "../shared/UserIdentity"
@@ -93,17 +100,18 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
           <span>{volume()}%</span>
         </div>
       </Show>
-      {/* Voice state icon - right aligned, deafened takes precedence, no icon if neither */}
-      <Show when={props.user.voiceDeafened || props.user.voiceMuted}>
-        <div class="ml-auto">
-          <Show when={props.user.voiceDeafened}>
+      <Switch>
+        <Match when={props.user.voiceDeafened}>
+          <div class="ml-auto">
             <TbOutlineHeadphonesOff class="w-4 h-4 text-error" />
-          </Show>
-          <Show when={!props.user.voiceDeafened && props.user.voiceMuted}>
+          </div>
+        </Match>
+        <Match when={props.user.voiceMuted}>
+          <div class="ml-auto">
             <TbOutlineMicrophoneOff class="w-4 h-4 text-error" />
-          </Show>
-        </div>
-      </Show>
+          </div>
+        </Match>
+      </Switch>
     </div>
   )
 }
@@ -153,10 +161,10 @@ const VoiceControlsRow: Component = () => {
 
 const Sidebar: Component = () => {
   const { localVoice, joinVoice, session } = useSession()
-  const { isServerUnavailable } = useConnection()
+  const { isServerUnavailable, currentUser } = useConnection()
+  const { getAllUsers } = useUsers()
   const { settings } = useSettings()
 
-  // UserCard state
   const [selectedUser, setSelectedUser] = createSignal<{
     user: User
     rect: DOMRect
@@ -173,7 +181,6 @@ const Sidebar: Component = () => {
   // Get current user ID to prevent self-card
   const currentUserId = () => currentUser()?.id
 
-  // Group users by status
   const groupedUsers = createMemo(() => {
     const all = getAllUsers()
 
@@ -206,9 +213,7 @@ const Sidebar: Component = () => {
 
   return (
     <div class="w-60 bg-surface border-l border-border flex flex-col h-full">
-      {/* Voice Section */}
       <div class="border-b border-border">
-        {/* Controls row - same position for Join OR Leave+Mute/Deafen */}
         <div class="px-3 p-3">
           <Show
             when={localVoice().inVoice}
@@ -231,61 +236,53 @@ const Sidebar: Component = () => {
         </div>
       </div>
 
-      {/* Members Section */}
       <div class="flex-1 overflow-y-auto p-2">
-        <Show when={groupedUsers().voiceOnline.length + groupedUsers().online.length > 0}>
-          <div class="mb-4">
-            <h4 class="text-xs font-semibold text-text-secondary uppercase px-3 mb-1">
-              Online - {groupedUsers().voiceOnline.length + groupedUsers().online.length}
-            </h4>
+        <div class="mb-4">
+          <h4 class="text-xs font-semibold text-text-secondary uppercase px-3 mb-1">
+            Online - {groupedUsers().voiceOnline.length + groupedUsers().online.length}
+          </h4>
 
-            {/* Voice Frame - users currently in voice */}
-            <Show when={groupedUsers().voiceOnline.length > 0}>
-              <div class="ring-1 ring-accent/50 rounded-lg bg-linear-to-br from-accent/10 to-surface/50">
-                <For each={groupedUsers().voiceOnline}>
-                  {(user) => (
-                    <VoiceMemberItem
-                      user={user}
-                      isCurrentUser={user.id === currentUserId()}
-                      onClick={(rect) => handleMemberClick(user, rect)}
-                    />
-                  )}
-                </For>
-              </div>
-            </Show>
+          <Show when={groupedUsers().voiceOnline.length > 0}>
+            <div class="ring-1 ring-accent/50 rounded-lg bg-linear-to-br from-accent/10 to-surface/50">
+              <For each={groupedUsers().voiceOnline}>
+                {(user) => (
+                  <VoiceMemberItem
+                    user={user}
+                    isCurrentUser={user.id === currentUserId()}
+                    onClick={(rect) => handleMemberClick(user, rect)}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
 
-            {/* Non-voice online members */}
-            <For each={groupedUsers().online}>
-              {(user) => (
-                <MemberItem
-                  user={user}
-                  isCurrentUser={user.id === currentUserId()}
-                  onClick={(rect) => handleMemberClick(user, rect)}
-                />
-              )}
-            </For>
-          </div>
-        </Show>
+          <For each={groupedUsers().online}>
+            {(user) => (
+              <MemberItem
+                user={user}
+                isCurrentUser={user.id === currentUserId()}
+                onClick={(rect) => handleMemberClick(user, rect)}
+              />
+            )}
+          </For>
+        </div>
 
-        <Show when={groupedUsers().offline.length > 0}>
-          <div>
-            <h4 class="text-xs font-semibold text-text-secondary uppercase px-3 mb-1">
-              Offline - {groupedUsers().offline.length}
-            </h4>
-            <For each={groupedUsers().offline}>
-              {(user) => (
-                <MemberItem
-                  user={user}
-                  isCurrentUser={user.id === currentUserId()}
-                  onClick={(rect) => handleMemberClick(user, rect)}
-                />
-              )}
-            </For>
-          </div>
-        </Show>
+        <div>
+          <h4 class="text-xs font-semibold text-text-secondary uppercase px-3 mb-1">
+            Offline - {groupedUsers().offline.length}
+          </h4>
+          <For each={groupedUsers().offline}>
+            {(user) => (
+              <MemberItem
+                user={user}
+                isCurrentUser={user.id === currentUserId()}
+                onClick={(rect) => handleMemberClick(user, rect)}
+              />
+            )}
+          </For>
+        </div>
       </div>
 
-      {/* UserCard popover */}
       <UserCard
         user={selectedUser()?.user}
         isOpen={selectedUser() !== null}

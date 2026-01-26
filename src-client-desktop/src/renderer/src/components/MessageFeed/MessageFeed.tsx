@@ -1,9 +1,10 @@
 import { type Component, createEffect, createMemo, For, onCleanup, onMount, Show } from "solid-js"
-import { useServers } from "../../stores/connection"
+import { useServers } from "../../stores/core"
 import { useMessages } from "../../stores/messages"
-import { useSession } from "../../stores/session"
 import { computeMessageGrouping } from "./groupMessages"
 import Message from "./Message"
+
+const EmptyState = () => <div class="p-4 text-center text-text-secondary">No messages yet</div>
 
 const MessageFeed: Component = () => {
   let feedRef: HTMLDivElement | undefined
@@ -12,25 +13,20 @@ const MessageFeed: Component = () => {
   // used in scroll event handlers and should not trigger re-renders
   let isUserNearBottom = true
   let isLoadingMore = false
+  let hasScrolledInitially = false
 
-  const {
-    getMessagesForServer,
-    loadHistory,
-    setupMessageListener,
-    isLoadingHistory,
-    hasMoreHistory,
-    isInitialLoadComplete,
-    messages: allMessages
-  } = useMessages()
+  const { messages, loadMoreHistory, setupMessageListener, isLoadingHistory, hasMoreHistory } =
+    useMessages()
   const { activeServerId } = useServers()
-  const { session } = useSession()
 
-  const messages = (): ReturnType<typeof getMessagesForServer> => {
+  const currentMessages = () => {
     const serverId = activeServerId()
-    return serverId ? getMessagesForServer(serverId) : []
+    return serverId ? messages() : []
   }
 
-  const groupedMessages = createMemo(() => computeMessageGrouping(messages()))
+  const groupedMessages = createMemo(() => {
+    return computeMessageGrouping(currentMessages())
+  })
 
   const scrollToBottom = (): void => {
     if (feedRef) {
@@ -52,15 +48,15 @@ const MessageFeed: Component = () => {
   const loadMoreMessages = async (): Promise<void> => {
     if (isLoadingMore || !hasMoreHistory() || isLoadingHistory()) return
 
-    const currentMessages = messages()
-    const oldestMessage = currentMessages[0]
+    const msgs = currentMessages()
+    const oldestMessage = msgs[0]
     if (!oldestMessage || !feedRef) return
 
     isLoadingMore = true
     const scrollHeightBefore = feedRef.scrollHeight
     const scrollTopBefore = feedRef.scrollTop
 
-    await loadHistory(oldestMessage.id)
+    await loadMoreHistory(oldestMessage.id)
 
     // Preserve scroll position after prepending messages
     requestAnimationFrame(() => {
@@ -93,12 +89,7 @@ const MessageFeed: Component = () => {
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0]
-        if (
-          entry.isIntersecting &&
-          hasMoreHistory() &&
-          !isLoadingHistory() &&
-          isInitialLoadComplete()
-        ) {
+        if (entry.isIntersecting && hasMoreHistory() && !isLoadingHistory()) {
           loadMoreMessages()
         }
       },
@@ -113,21 +104,21 @@ const MessageFeed: Component = () => {
     onCleanup(() => observer.disconnect())
   })
 
-  // Trigger initial load when connected
+  // Scroll to bottom on initial load
   createEffect(() => {
-    if (session()?.status === "connected" && !isInitialLoadComplete()) {
-      loadHistory().then(() => {
-        requestAnimationFrame(() => scrollToBottom())
-      })
+    const msgs = currentMessages()
+    if (msgs.length > 0 && !hasScrolledInitially) {
+      hasScrolledInitially = true
+      requestAnimationFrame(() => scrollToBottom())
     }
   })
 
   // Auto-scroll for new messages only when user is near bottom
   createEffect((prevLength: number) => {
-    const currentLength = allMessages().length
+    const currentLength = currentMessages().length
 
     // Only scroll if new messages were added (not prepended) and user is near bottom
-    if (currentLength > prevLength && isUserNearBottom && isInitialLoadComplete()) {
+    if (currentLength > prevLength && isUserNearBottom && hasScrolledInitially) {
       requestAnimationFrame(() => scrollToBottom())
     }
 
@@ -138,30 +129,11 @@ const MessageFeed: Component = () => {
     <div ref={feedRef} class="flex-1 min-w-0 overflow-y-auto overflow-x-hidden py-2">
       <div ref={sentinelRef} class="h-1" />
 
-      <Show when={isLoadingHistory() && isInitialLoadComplete()}>
-        <div class="flex justify-center py-4">
-          <div class="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-        </div>
-      </Show>
-
-      <Show when={!hasMoreHistory() && messages().length > 0}>
+      <Show when={!hasMoreHistory() && currentMessages().length > 0}>
         <div class="py-4 text-center text-sm text-text-secondary">Beginning of conversation</div>
       </Show>
 
-      <Show when={!isInitialLoadComplete() && session()?.status === "connected"}>
-        <div class="flex h-full items-center justify-center">
-          <div class="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-        </div>
-      </Show>
-
-      <For
-        each={groupedMessages()}
-        fallback={
-          <Show when={isInitialLoadComplete()}>
-            <div class="p-4 text-center text-text-secondary">No messages yet</div>
-          </Show>
-        }
-      >
+      <For each={groupedMessages()} fallback={<EmptyState />}>
         {(item) => (
           <Message
             message={item.message}

@@ -95,7 +95,6 @@ const UserCard: Component<UserCardProps> = (props) => {
               style={cardStyle()}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Header with avatar and name */}
               <div class="bg-surface-elevated p-4">
                 <UserIdentity
                   name={user.username}
@@ -112,7 +111,6 @@ const UserCard: Component<UserCardProps> = (props) => {
                 </Show>
               </div>
 
-              {/* Volume controls - only shown when user is in voice and not self */}
               <Show when={user.inVoice && !props.isCurrentUser}>
                 <div class="p-4 border-t border-border">
                   <div class="flex items-center gap-2 mb-3">

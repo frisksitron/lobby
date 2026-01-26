@@ -1,8 +1,9 @@
 {
   "name": "lobby-app",
   "version": "1.0.0",
+  "type": "module",
   "description": "An Electron application with Solid and TypeScript",
-  "main": "./out/main/index.mjs",
+  "main": "./out/main/index.js",
   "author": "example.com",
   "homepage": "https://electron-vite.org",
   "scripts": {

@@ -2,7 +2,7 @@ import { type Component, createEffect, createSignal } from "solid-js"
 import { updateMe } from "../../lib/api/auth"
 import { getValidToken } from "../../lib/auth/token-manager"
 import { createLogger } from "../../lib/logger"
-import { getServerUrl, updateCurrentUser, useConnection, useServers } from "../../stores/connection"
+import { useConnection, useServers } from "../../stores/core"
 import { useUI } from "../../stores/ui"
 import Button from "../shared/Button"
 import FormField, { INPUT_CLASS } from "../shared/FormField"
@@ -16,7 +16,7 @@ interface ServerSettingsModalProps {
 }
 
 const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
-  const { currentUser } = useConnection()
+  const { currentUser, getServerUrl, updateCurrentUser } = useConnection()
   const { activeServer, activeServerId, leaveServer } = useServers()
   const { showConfirmDialog, closeConfirmDialog } = useUI()
 

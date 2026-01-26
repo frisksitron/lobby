@@ -110,6 +110,7 @@ export interface PresenceUpdatePayload {
 
 export interface TypingStartPayload {
   user_id: string
+  username: string
   timestamp: string
 }
 

@@ -1,18 +1,11 @@
 import { type Component, createMemo, Show } from "solid-js"
-import { useSession } from "../../stores/session"
-import { getUserById } from "../../stores/users"
+import { useSession } from "../../stores/core"
 
 const TypingIndicator: Component = () => {
   const { typingUsers } = useSession()
 
-  // Get display names for typing users
   const typingNames = createMemo(() => {
-    return typingUsers()
-      .map((tu) => {
-        const user = getUserById(tu.userId)
-        return user?.username || "Someone"
-      })
-      .filter(Boolean)
+    return typingUsers().map((tu) => tu.username)
   })
 
   // Format the typing message

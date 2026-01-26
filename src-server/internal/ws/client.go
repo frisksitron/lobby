@@ -417,6 +417,7 @@ func (c *Client) handleTyping() {
 
 	c.hub.BroadcastDispatchExcept(EventTypingStart, TypingStartPayload{
 		UserID:    c.user.ID,
+		Username:  c.user.Username,
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 	}, c)
 }

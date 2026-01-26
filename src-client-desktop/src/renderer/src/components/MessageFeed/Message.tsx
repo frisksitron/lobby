@@ -1,6 +1,6 @@
 import { type Component, Show } from "solid-js"
 import type { Message as MessageType } from "../../../../shared/types"
-import { getUserById } from "../../stores/users"
+import { useUsers } from "../../stores/core"
 import UserIdentity from "../shared/UserIdentity"
 
 interface MessageProps {
@@ -39,9 +39,9 @@ function formatShortTime(timestamp: string): string {
 }
 
 const Message: Component<MessageProps> = (props) => {
-  const author = () => getUserById(props.message.authorId)
-  const authorStatus = () => author()?.status ?? "offline"
+  const { getUserById } = useUsers()
   const isFirstInGroup = () => props.isFirstInGroup ?? true
+  const author = () => getUserById(props.message.authorId)
 
   return (
     <div
@@ -66,9 +66,9 @@ const Message: Component<MessageProps> = (props) => {
       >
         <div class="flex items-center gap-2">
           <UserIdentity
-            name={author()?.username || "Unknown"}
-            avatarUrl={author()?.avatarUrl}
-            status={authorStatus()}
+            name={props.message.authorName}
+            avatarUrl={props.message.authorAvatarUrl}
+            status={author()?.status}
             size="md"
             nameClass="font-semibold"
           />

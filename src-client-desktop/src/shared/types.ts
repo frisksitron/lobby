@@ -26,6 +26,8 @@ export interface Message {
   id: string
   serverId: string
   authorId: string
+  authorName: string
+  authorAvatarUrl?: string
   content: string
   timestamp: string
 }
@@ -64,6 +66,7 @@ export interface LocalVoiceState {
 // Typing indicator state
 export interface TypingUser {
   userId: string
+  username: string
   timestamp: string
 }
 

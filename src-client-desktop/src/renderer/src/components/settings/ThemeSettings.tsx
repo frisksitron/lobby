@@ -19,16 +19,12 @@ const ThemePreview: Component<ThemePreviewProps> = (props) => {
           : "border-border bg-surface hover:border-text-secondary"
       }`}
     >
-      {/* Mini app preview */}
       <div
         class="w-14 h-10 rounded overflow-hidden flex shrink-0"
         style={{ "background-color": props.theme.colors.background }}
       >
-        {/* Sidebar */}
         <div class="w-4 h-full" style={{ "background-color": props.theme.colors.surface }} />
-        {/* Main content area */}
         <div class="flex-1 p-1 flex flex-col justify-end gap-0.5">
-          {/* Mock messages */}
           <div
             class="h-1.5 w-full rounded-sm opacity-40"
             style={{ "background-color": props.theme.colors.textSecondary }}
@@ -37,7 +33,6 @@ const ThemePreview: Component<ThemePreviewProps> = (props) => {
             class="h-1.5 w-3/4 rounded-sm opacity-40"
             style={{ "background-color": props.theme.colors.textSecondary }}
           />
-          {/* Input bar */}
           <div
             class="h-2 w-full rounded-sm mt-0.5"
             style={{ "background-color": props.theme.colors.surfaceElevated }}
@@ -45,16 +40,13 @@ const ThemePreview: Component<ThemePreviewProps> = (props) => {
         </div>
       </div>
 
-      {/* Accent color dot */}
       <div
         class="w-3 h-3 rounded-full shrink-0"
         style={{ "background-color": props.theme.colors.accent }}
       />
 
-      {/* Theme name */}
       <span class="text-text-primary font-medium">{props.theme.name}</span>
 
-      {/* Selected indicator */}
       {props.isSelected && <span class="ml-auto text-xs text-accent font-medium">Selected</span>}
     </button>
   )

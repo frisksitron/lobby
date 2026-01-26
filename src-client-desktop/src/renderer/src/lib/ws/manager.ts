@@ -46,6 +46,7 @@ class WebSocketManager {
   private sessionId: string = ""
   private disconnectReason: "auth" | "network" | "normal" = "normal"
   private serverUnavailableEmitted: boolean = false
+  private isUnloading: boolean = false
 
   constructor() {
     const eventTypes: WSClientEventType[] = [
@@ -76,6 +77,10 @@ class WebSocketManager {
 
     onTokenRefresh((newToken) => {
       this.updateToken(newToken)
+    })
+
+    window.addEventListener("beforeunload", () => {
+      this.isUnloading = true
     })
   }
 
@@ -167,7 +172,7 @@ class WebSocketManager {
           reject(new Error(`WebSocket closed before ready: ${event.code}`))
         }
 
-        if (this.shouldReconnect && event.code !== 1000) {
+        if (this.shouldReconnect && event.code !== 1000 && !this.isUnloading) {
           this.scheduleReconnect()
         }
       }
