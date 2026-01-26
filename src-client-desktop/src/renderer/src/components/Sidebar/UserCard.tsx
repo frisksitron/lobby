@@ -70,12 +70,10 @@ const UserCard: Component<UserCardProps> = (props) => {
     }
   })
 
-  // Calculate position based on anchor
   const cardStyle = () => {
     if (!props.anchorRect) return {}
 
-    // Position to the left of the sidebar
-    const left = props.anchorRect.left - 280 - 8 // card width + gap
+    const left = props.anchorRect.left - 280 - 16
     const top = Math.max(8, Math.min(props.anchorRect.top, window.innerHeight - 300))
 
     return {
@@ -111,28 +109,32 @@ const UserCard: Component<UserCardProps> = (props) => {
                 </Show>
               </div>
 
-              <Show when={user.inVoice && !props.isCurrentUser}>
+              <Show when={!props.isCurrentUser}>
                 <div class="p-4 border-t border-border">
-                  <div class="flex items-center gap-2 mb-3">
-                    <TbOutlineVolume class="w-4 h-4 text-text-secondary" />
-                    <span class="text-sm text-text-secondary">Volume</span>
-                    <span class="ml-auto text-sm text-text-primary font-medium">{volume()}%</span>
-                    <Show when={volume() !== 100}>
-                      <button
-                        type="button"
-                        onClick={handleResetVolume}
-                        class="p-1 rounded hover:bg-surface-elevated transition-colors"
-                        title="Reset to 100%"
-                      >
-                        <TbOutlineRefresh class="w-4 h-4 text-text-secondary" />
-                      </button>
-                    </Show>
-                  </div>
-                  <VolumeSlider value={volume()} onChange={handleVolumeChange} min={0} max={200} />
-                  <div class="flex justify-between text-xs text-text-secondary mt-1">
-                    <span>0%</span>
-                    <span>100%</span>
-                    <span>200%</span>
+                  <div class="flex items-center gap-3">
+                    <TbOutlineVolume class="w-4 h-4 text-text-secondary shrink-0" />
+                    <VolumeSlider
+                      value={volume()}
+                      onChange={handleVolumeChange}
+                      min={0}
+                      max={200}
+                    />
+                    <span class="w-10 text-right text-xs text-text-secondary tabular-nums shrink-0">
+                      {volume()}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleResetVolume}
+                      class="p-1 rounded transition-colors shrink-0"
+                      classList={{
+                        "opacity-30 cursor-default": volume() === 100,
+                        "hover:bg-surface-elevated": volume() !== 100
+                      }}
+                      disabled={volume() === 100}
+                      title="Reset to 100%"
+                    >
+                      <TbOutlineRefresh class="w-4 h-4 text-text-secondary" />
+                    </button>
                   </div>
                 </div>
               </Show>

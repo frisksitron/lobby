@@ -30,6 +30,7 @@ interface MemberItemProps {
   user: User
   inVoice?: boolean
   isCurrentUser: boolean
+  isSelected: boolean
   onClick: (rect: DOMRect) => void
 }
 
@@ -45,7 +46,8 @@ const MemberItem: Component<MemberItemProps> = (props) => {
   return (
     <div
       ref={itemRef}
-      class="flex items-center gap-3 px-3 py-2 rounded transition-colors cursor-pointer hover:bg-surface-elevated"
+      class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer hover:bg-surface-elevated"
+      classList={{ "bg-surface-elevated": props.isSelected }}
       onClick={handleClick}
     >
       <UserIdentity
@@ -64,6 +66,7 @@ const MemberItem: Component<MemberItemProps> = (props) => {
 interface VoiceMemberItemProps {
   user: User
   isCurrentUser: boolean
+  isSelected: boolean
   onClick: (rect: DOMRect) => void
 }
 
@@ -77,14 +80,14 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
     }
   }
 
-  // Show volume badge if not 100% (never for self)
   const volume = () => getUserVolume(props.user.id)
   const showVolumeBadge = () => !props.isCurrentUser && volume() !== 100
 
   return (
     <div
       ref={itemRef}
-      class="flex items-center gap-3 px-3 py-2 rounded transition-colors cursor-pointer hover:bg-surface-elevated/50"
+      class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer hover:bg-surface-elevated/50"
+      classList={{ "bg-surface-elevated/50": props.isSelected }}
       onClick={handleClick}
     >
       <UserIdentity
@@ -249,6 +252,7 @@ const Sidebar: Component = () => {
                   <VoiceMemberItem
                     user={user}
                     isCurrentUser={user.id === currentUserId()}
+                    isSelected={selectedUser()?.user.id === user.id}
                     onClick={(rect) => handleMemberClick(user, rect)}
                   />
                 )}
@@ -261,6 +265,7 @@ const Sidebar: Component = () => {
               <MemberItem
                 user={user}
                 isCurrentUser={user.id === currentUserId()}
+                isSelected={selectedUser()?.user.id === user.id}
                 onClick={(rect) => handleMemberClick(user, rect)}
               />
             )}
@@ -276,6 +281,7 @@ const Sidebar: Component = () => {
               <MemberItem
                 user={user}
                 isCurrentUser={user.id === currentUserId()}
+                isSelected={selectedUser()?.user.id === user.id}
                 onClick={(rect) => handleMemberClick(user, rect)}
               />
             )}

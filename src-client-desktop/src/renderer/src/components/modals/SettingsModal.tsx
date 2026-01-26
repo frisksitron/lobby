@@ -115,10 +115,7 @@ const SettingsModal: Component<SettingsModalProps> = (props) => {
               </select>
             </FormField>
 
-            <FormField
-              label="Noise Suppression"
-              hint="Removes background noise from your microphone"
-            >
+            <FormField label="Noise Suppression">
               <select
                 value={settings().noiseSuppression}
                 onChange={(e) =>
@@ -138,19 +135,19 @@ const SettingsModal: Component<SettingsModalProps> = (props) => {
           </div>
         </section>
 
-        <DialogFooter>
-          <Button variant="primary" onClick={props.onClose}>
-            Done
-          </Button>
-        </DialogFooter>
-
-        <div class="pt-4 border-t border-border text-xs text-text-secondary">
+        <div class="pt-4 text-xs text-text-secondary">
           <p>Lobby v{__APP_VERSION__}</p>
           <p class="mt-1">
             Electron {window.electron.process.versions.electron} · Chrome{" "}
             {window.electron.process.versions.chrome} · Node {window.electron.process.versions.node}
           </p>
         </div>
+
+        <DialogFooter>
+          <Button variant="primary" onClick={props.onClose}>
+            Done
+          </Button>
+        </DialogFooter>
       </div>
     </Modal>
   )
