@@ -133,7 +133,7 @@ const MessageFeed: Component = () => {
   }, 0)
 
   return (
-    <div ref={feedRef} class="flex-1 overflow-y-auto py-2">
+    <div ref={feedRef} class="flex-1 min-w-0 overflow-y-auto overflow-x-hidden py-2">
       <div ref={sentinelRef} class="h-1" />
 
       <Show when={isLoadingHistory() && isInitialLoadComplete()}>

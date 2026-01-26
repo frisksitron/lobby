@@ -58,7 +58,7 @@ const Message: Component<MessageProps> = (props) => {
             <span class="w-[52px] text-[10px] text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity text-right pr-2">
               {formatShortTime(props.message.timestamp)}
             </span>
-            <p class="text-text-primary break-words whitespace-pre-wrap flex-1">
+            <p class="text-text-primary break-all whitespace-pre-wrap flex-1">
               {props.message.content}
             </p>
           </div>
@@ -76,7 +76,7 @@ const Message: Component<MessageProps> = (props) => {
             {formatTimestamp(props.message.timestamp)}
           </span>
         </div>
-        <p class="text-text-primary break-words whitespace-pre-wrap ml-[52px]">
+        <p class="text-text-primary break-all whitespace-pre-wrap ml-[52px]">
           {props.message.content}
         </p>
       </Show>
