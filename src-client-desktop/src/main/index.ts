@@ -5,6 +5,18 @@ import Store from "electron-store"
 import icon from "../../resources/icon.png?asset"
 import { createLogger } from "./logger"
 
+// WebRTC/Audio optimizations - prevent background throttling for voice chat
+app.commandLine.appendSwitch("disable-background-timer-throttling")
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows")
+app.commandLine.appendSwitch("disable-renderer-backgrounding")
+
+// Audio autoplay without user gesture
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required")
+
+// GPU acceleration
+app.commandLine.appendSwitch("enable-gpu-rasterization")
+app.commandLine.appendSwitch("enable-zero-copy")
+
 const log = createLogger("Main")
 
 interface SecureTokens {

@@ -1,10 +1,10 @@
 import { useSettings } from "../../stores/settings"
 import { createLogger } from "../logger"
+import { getSharedAudioContext } from "./audio-context"
 
 const log = createLogger("Audio")
 
 interface AudioNode {
-  ctx: AudioContext
   gain: GainNode
   source: MediaStreamAudioSourceNode
   element: HTMLAudioElement
@@ -38,8 +38,8 @@ class AudioManager {
     // Remove existing element if any
     this.removeStream(userId)
 
-    // Create audio context and nodes
-    const ctx = new AudioContext()
+    // Use shared audio context to avoid memory leaks
+    const ctx = getSharedAudioContext()
     const source = ctx.createMediaStreamSource(stream)
     const gain = ctx.createGain()
 
@@ -75,7 +75,7 @@ class AudioManager {
       })
     }
 
-    this.audioNodes.set(userId, { ctx, gain, source, element })
+    this.audioNodes.set(userId, { gain, source, element })
     log.info(`Now playing ${this.audioNodes.size} streams (volume: ${volume}%)`)
   }
 
@@ -87,7 +87,6 @@ class AudioManager {
     if (node) {
       node.source.disconnect()
       node.gain.disconnect()
-      node.ctx.close().catch(() => {})
       node.element.srcObject = null
       this.audioNodes.delete(userId)
       log.info(`Removed stream for user ${userId}`)
@@ -101,7 +100,6 @@ class AudioManager {
     this.audioNodes.forEach((node, userId) => {
       node.source.disconnect()
       node.gain.disconnect()
-      node.ctx.close().catch(() => {})
       node.element.srcObject = null
       log.info(`Removed stream for user ${userId}`)
     })
@@ -114,11 +112,12 @@ class AudioManager {
    */
   setDeafened(deafened: boolean): void {
     this.deafened = deafened
+    const ctx = getSharedAudioContext()
     this.audioNodes.forEach((node, userId) => {
       const volume = this.userVolumes.get(userId) ?? 100
       const targetGain = deafened ? 0 : volume / 100
       // Smooth transition
-      node.gain.gain.setTargetAtTime(targetGain, node.ctx.currentTime, 0.01)
+      node.gain.gain.setTargetAtTime(targetGain, ctx.currentTime, 0.01)
     })
     log.info(`Deafened: ${deafened}`)
   }
@@ -134,7 +133,8 @@ class AudioManager {
     const node = this.audioNodes.get(userId)
     if (node && !this.deafened) {
       // Smooth transition over 10ms
-      node.gain.gain.setTargetAtTime(clampedVolume / 100, node.ctx.currentTime, 0.01)
+      const ctx = getSharedAudioContext()
+      node.gain.gain.setTargetAtTime(clampedVolume / 100, ctx.currentTime, 0.01)
     }
   }
 
@@ -150,10 +150,11 @@ class AudioManager {
    */
   setMasterVolume(volume: number): void {
     const clampedVolume = Math.max(0, Math.min(200, volume))
+    const ctx = getSharedAudioContext()
     this.audioNodes.forEach((node, userId) => {
       this.userVolumes.set(userId, clampedVolume)
       if (!this.deafened) {
-        node.gain.gain.setTargetAtTime(clampedVolume / 100, node.ctx.currentTime, 0.01)
+        node.gain.gain.setTargetAtTime(clampedVolume / 100, ctx.currentTime, 0.01)
       }
     })
   }

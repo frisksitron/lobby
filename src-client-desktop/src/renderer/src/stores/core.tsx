@@ -14,7 +14,7 @@ import { TYPING_TIMEOUT_MS } from "../lib/constants/ui"
 import { createLogger } from "../lib/logger"
 import { playSound } from "../lib/sounds"
 import { clearAllAuthData, setTokens } from "../lib/storage"
-import { audioManager, webrtcManager } from "../lib/webrtc"
+import { audioManager, preloadWasm, warmupWebRTC, webrtcManager } from "../lib/webrtc"
 import {
   type ErrorPayload,
   type ReadyPayload,
@@ -46,6 +46,7 @@ const [currentUserId, setCurrentUserId] = createSignal<string | null>(null)
 const [servers, setServers] = createSignal<Server[]>([])
 const [session, setSession] = createSignal<Session | null>(null)
 const [localVoice, setLocalVoice] = createSignal<LocalVoiceState>({
+  connecting: false,
   inVoice: false,
   muted: false,
   deafened: false
@@ -157,8 +158,10 @@ function handleVoiceStateUpdate(payload: {
   const previousUser = users[payload.user_id]
   const wasInVoiceChannel = previousUser?.inVoice ?? false
   const isNowInVoice = payload.in_voice
+  const voice = localVoice()
 
-  if (!isCurrentUser && wasInVoiceChannel !== isNowInVoice && localVoice().inVoice) {
+  // Play sounds when we're in voice or connecting
+  if (!isCurrentUser && wasInVoiceChannel !== isNowInVoice && (voice.inVoice || voice.connecting)) {
     playSound(isNowInVoice ? "user-join" : "user-leave")
   }
 
@@ -172,11 +175,34 @@ function handleVoiceStateUpdate(payload: {
   if (isCurrentUser) {
     confirmedMuted = payload.muted
     confirmedDeafened = payload.deafened
-    setLocalVoice({
-      inVoice: payload.in_voice,
-      muted: payload.muted,
-      deafened: payload.deafened
-    })
+
+    if (payload.in_voice) {
+      // If connecting, preserve connecting state - handleRtcReady will set inVoice
+      // Just update muted/deafened to match server confirmation
+      if (voice.connecting) {
+        setLocalVoice((prev) => ({
+          ...prev,
+          muted: payload.muted,
+          deafened: payload.deafened
+        }))
+      } else {
+        // Not connecting, set full state (e.g., server-initiated state change)
+        setLocalVoice((prev) => ({
+          ...prev,
+          inVoice: true,
+          muted: payload.muted,
+          deafened: payload.deafened
+        }))
+      }
+    } else {
+      // Server says we're not in voice - reset everything
+      setLocalVoice({
+        connecting: false,
+        inVoice: false,
+        muted: false,
+        deafened: false
+      })
+    }
   }
 
   if (!payload.in_voice) {
@@ -193,17 +219,38 @@ async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
     credential: server.credential
   }))
 
+  const userId = currentUserId()
+  const voice = localVoice()
+
   try {
     await webrtcManager.start(iceServers)
 
+    // Apply initial mute/deafen state now that streams are ready
+    if (voice.muted || voice.deafened) {
+      webrtcManager.setVoiceState(voice.muted, voice.deafened)
+    }
+
+    // Now mark as fully connected
+    playSound("user-join")
+    setLocalVoice((prev) => ({ ...prev, connecting: false, inVoice: true }))
+    if (userId) {
+      updateUser(userId, {
+        inVoice: true,
+        voiceMuted: voice.muted,
+        voiceDeafened: voice.deafened,
+        voiceSpeaking: false
+      })
+    }
+
     webrtcManager.onSpeaking((speaking) => {
-      const userId = currentUserId()
-      if (userId) {
-        updateUser(userId, { voiceSpeaking: speaking })
+      const id = currentUserId()
+      if (id) {
+        updateUser(id, { voiceSpeaking: speaking })
       }
     })
   } catch (err) {
     log.error("Failed to start WebRTC:", err)
+    setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
   }
 }
 
@@ -212,9 +259,10 @@ function handleVoiceSpeaking(payload: VoiceSpeakingPayload): void {
 }
 
 function stopVoice(): void {
-  if (localVoice().inVoice) {
+  const voice = localVoice()
+  if (voice.inVoice || voice.connecting) {
     webrtcManager.stop()
-    setLocalVoice({ inVoice: false, muted: false, deafened: false })
+    setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
   }
 }
 
@@ -222,14 +270,7 @@ function joinVoice(): void {
   const userId = currentUserId()
   if (!userId || session()?.status !== "connected") return
 
-  playSound("user-join")
-  setLocalVoice({ inVoice: true, muted: false, deafened: false })
-  updateUser(userId, {
-    inVoice: true,
-    voiceMuted: false,
-    voiceDeafened: false,
-    voiceSpeaking: false
-  })
+  setLocalVoice({ connecting: true, inVoice: false, muted: false, deafened: false })
   wsManager.joinVoice(false, false)
 }
 
@@ -237,18 +278,12 @@ function rejoinVoice(muted: boolean, deafened: boolean): void {
   const userId = currentUserId()
   if (!userId) return
 
-  setLocalVoice({ inVoice: true, muted, deafened })
-  updateUser(userId, {
-    inVoice: true,
-    voiceMuted: muted,
-    voiceDeafened: deafened,
-    voiceSpeaking: false
-  })
+  setLocalVoice({ connecting: true, inVoice: false, muted, deafened })
   wsManager.joinVoice(muted, deafened)
 }
 
 function leaveVoice(): void {
-  setLocalVoice({ inVoice: false, muted: false, deafened: false })
+  setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
 
   const userId = currentUserId()
   if (userId) {
@@ -313,6 +348,10 @@ function setupWSListeners(): (() => void)[] {
 
   unsubscribes.push(
     wsManager.on("ready", (payload: ReadyPayload) => {
+      // Preload noise suppression WASM and warm up WebRTC so voice join is fast
+      preloadWasm()
+      warmupWebRTC()
+
       payload.members.forEach((member) => {
         updateUser(member.id, {
           status: member.status,
@@ -460,7 +499,7 @@ function setupWSListeners(): (() => void)[] {
         }
       } else if (payload.code === "VOICE_JOIN_COOLDOWN") {
         if (userId) {
-          setLocalVoice({ inVoice: false, muted: false, deafened: false })
+          setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
           updateUser(userId, {
             inVoice: false,
             voiceMuted: false,

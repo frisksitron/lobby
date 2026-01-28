@@ -12,6 +12,7 @@ import speexWasmPath from "@sapphi-red/web-noise-suppressor/speex.wasm?url"
 import speexWorkletPath from "@sapphi-red/web-noise-suppressor/speexWorklet.js?url"
 import type { NoiseSuppressionAlgorithm } from "../../../../shared/types"
 import { createLogger } from "../logger"
+import { getSharedAudioContext } from "./audio-context"
 
 const log = createLogger("AudioPipeline")
 
@@ -42,49 +43,80 @@ interface WasmBinaries {
 }
 
 // ============================================================================
-// Module-level WASM cache (loaded once, reused across sessions)
+// Module-level caches (loaded once, reused across sessions)
 // ============================================================================
 
 let wasmCache: WasmBinaries | null = null
+let preloadPromise: Promise<WasmBinaries> | null = null
+const registeredContexts = new WeakSet<AudioContext>()
 
-async function getWasmBinaries(): Promise<WasmBinaries> {
+/**
+ * Preload WASM binaries and register worklets in the background.
+ * Call this early (e.g., on server connection) so voice join is fast.
+ */
+export function preloadWasm(): void {
+  // Load WASM and register worklets on shared context
+  // Worklets can be registered on a suspended AudioContext
+  getWasmBinaries()
+    .then((wasm) => {
+      const ctx = getSharedAudioContext()
+      return registerWorklets(ctx, wasm)
+    })
+    .catch((err) => {
+      log.warn("Preload failed:", err)
+    })
+}
+
+function getWasmBinaries(): Promise<WasmBinaries> {
   if (wasmCache) {
     log.info("Using cached WASM binaries")
-    return wasmCache
+    return Promise.resolve(wasmCache)
+  }
+
+  // If load is already in progress, wait for it instead of starting a new one
+  if (preloadPromise) {
+    log.info("Waiting for WASM load to complete...")
+    return preloadPromise
   }
 
   log.info("Loading WASM binaries...")
 
-  const wasm: WasmBinaries = { speex: null, rnnoise: null }
+  // Create and store the promise immediately to prevent duplicate loads
+  preloadPromise = (async () => {
+    const wasm: WasmBinaries = { speex: null, rnnoise: null }
 
-  // Load WASM binaries in parallel - if one fails, try to load the other
-  const results = await Promise.allSettled([
-    loadSpeex({ url: speexWasmPath }),
-    loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseWasmSimdPath })
-  ])
+    // Load WASM binaries in parallel - if one fails, try to load the other
+    const results = await Promise.allSettled([
+      loadSpeex({ url: speexWasmPath }),
+      loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseWasmSimdPath })
+    ])
 
-  if (results[0].status === "fulfilled") {
-    wasm.speex = results[0].value
-    log.info("Speex WASM loaded")
-  } else {
-    log.warn("Failed to load Speex WASM:", results[0].reason)
-  }
+    if (results[0].status === "fulfilled") {
+      wasm.speex = results[0].value
+      log.info("Speex WASM loaded")
+    } else {
+      log.warn("Failed to load Speex WASM:", results[0].reason)
+    }
 
-  if (results[1].status === "fulfilled") {
-    wasm.rnnoise = results[1].value
-    log.info("RNNoise WASM loaded")
-  } else {
-    log.warn("Failed to load RNNoise WASM:", results[1].reason)
-  }
+    if (results[1].status === "fulfilled") {
+      wasm.rnnoise = results[1].value
+      log.info("RNNoise WASM loaded")
+    } else {
+      log.warn("Failed to load RNNoise WASM:", results[1].reason)
+    }
 
-  // Check if at least one WASM binary loaded
-  if (!wasm.speex && !wasm.rnnoise) {
-    throw new Error("Failed to load any WASM binaries")
-  }
+    // Check if at least one WASM binary loaded
+    if (!wasm.speex && !wasm.rnnoise) {
+      preloadPromise = null
+      throw new Error("Failed to load any WASM binaries")
+    }
 
-  wasmCache = wasm
-  log.info("WASM binaries cached")
-  return wasm
+    wasmCache = wasm
+    log.info("WASM binaries cached")
+    return wasm
+  })()
+
+  return preloadPromise
 }
 
 // ============================================================================
@@ -92,6 +124,12 @@ async function getWasmBinaries(): Promise<WasmBinaries> {
 // ============================================================================
 
 async function registerWorklets(ctx: AudioContext, wasm: WasmBinaries): Promise<void> {
+  // Skip if already registered on this context
+  if (registeredContexts.has(ctx)) {
+    log.info("Audio worklets already registered")
+    return
+  }
+
   log.info("Registering audio worklets...")
 
   const workletPromises: Promise<void>[] = []
@@ -103,6 +141,7 @@ async function registerWorklets(ctx: AudioContext, wasm: WasmBinaries): Promise<
   }
 
   await Promise.all(workletPromises)
+  registeredContexts.add(ctx)
   log.info("Audio worklets registered")
 }
 

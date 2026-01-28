@@ -58,6 +58,7 @@ export interface Session {
 }
 
 export interface LocalVoiceState {
+  connecting: boolean
   inVoice: boolean
   muted: boolean
   deafened: boolean

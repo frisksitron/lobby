@@ -4,6 +4,6 @@ export {
   getSharedAudioContext,
   getSharedAudioContextIfExists
 } from "./audio-context"
-export { WebRTCManager, webrtcManager } from "./manager"
+export { getWarmupPromise, WebRTCManager, warmupWebRTC, webrtcManager } from "./manager"
 export type { AudioPipeline, AudioPipelineConfig, AudioPipelineSettings } from "./noise-suppressor"
-export { createAudioPipeline } from "./noise-suppressor"
+export { createAudioPipeline, preloadWasm } from "./noise-suppressor"

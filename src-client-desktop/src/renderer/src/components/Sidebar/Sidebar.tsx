@@ -4,8 +4,7 @@ import {
   TbOutlineHeadset,
   TbOutlineMicrophone,
   TbOutlineMicrophoneOff,
-  TbOutlinePhoneX,
-  TbOutlineVolume
+  TbOutlinePhoneX
 } from "solid-icons/tb"
 import {
   type Component,
@@ -18,6 +17,7 @@ import {
   Switch
 } from "solid-js"
 import type { User } from "../../../../shared/types"
+import { createDeferred } from "../../lib/reactive"
 import { audioManager } from "../../lib/webrtc"
 import { useConnection, useSession, useUsers } from "../../stores/core"
 import { useSettings } from "../../stores/settings"
@@ -72,16 +72,12 @@ interface VoiceMemberItemProps {
 
 const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
   let itemRef: HTMLDivElement | undefined
-  const { getUserVolume } = useSettings()
 
   const handleClick = () => {
     if (itemRef) {
       props.onClick(itemRef.getBoundingClientRect())
     }
   }
-
-  const volume = () => getUserVolume(props.user.id)
-  const showVolumeBadge = () => !props.isCurrentUser && volume() !== 100
 
   return (
     <div
@@ -97,12 +93,6 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
         size="sm"
         speaking={props.user.voiceSpeaking}
       />
-      <Show when={showVolumeBadge()}>
-        <div class="flex items-center gap-0.5 text-xs text-text-secondary">
-          <TbOutlineVolume class="w-3 h-3" />
-          <span>{volume()}%</span>
-        </div>
-      </Show>
       <Switch>
         <Match when={props.user.voiceDeafened}>
           <div class="ml-auto">
@@ -168,6 +158,8 @@ const Sidebar: Component = () => {
   const { getAllUsers } = useUsers()
   const { settings } = useSettings()
 
+  const showConnecting = createDeferred(() => localVoice().connecting, 200)
+
   const [selectedUser, setSelectedUser] = createSignal<{
     user: User
     rect: DOMRect
@@ -218,9 +210,19 @@ const Sidebar: Component = () => {
     <div class="w-60 bg-surface border-l border-border flex flex-col h-full">
       <div class="border-b border-border">
         <div class="px-3 p-3">
-          <Show
-            when={localVoice().inVoice}
-            fallback={
+          <Switch>
+            <Match when={localVoice().inVoice}>
+              <VoiceControlsRow />
+            </Match>
+            <Match when={showConnecting()}>
+              <Button variant="secondary" class="w-full" disabled>
+                <span class="flex items-center justify-center gap-2">
+                  <TbOutlineHeadset class="w-4 h-4 animate-pulse" />
+                  Connecting...
+                </span>
+              </Button>
+            </Match>
+            <Match when={true}>
               <Button
                 variant="primary"
                 class="w-full"
@@ -232,10 +234,8 @@ const Sidebar: Component = () => {
                   {isServerUnavailable() ? "Unavailable" : "Join Voice"}
                 </span>
               </Button>
-            }
-          >
-            <VoiceControlsRow />
-          </Show>
+            </Match>
+          </Switch>
         </div>
       </div>
 

@@ -99,7 +99,6 @@ const UserCard: Component<UserCardProps> = (props) => {
                   avatarUrl={user.avatarUrl}
                   status={user.status}
                   size="lg"
-                  speaking={user.voiceSpeaking}
                   nameClass="text-lg font-semibold"
                 />
                 <Show when={user.createdAt}>

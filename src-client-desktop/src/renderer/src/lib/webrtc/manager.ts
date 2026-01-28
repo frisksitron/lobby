@@ -5,13 +5,55 @@ import { wsManager } from "../ws"
 import type { RtcAnswerPayload, RtcIceCandidatePayload, RtcOfferPayload } from "../ws/types"
 import { audioManager } from "./audio"
 import { closeSharedAudioContext, getSharedAudioContext } from "./audio-context"
-import { AUDIO_BITRATE_BPS } from "./constants"
+import {
+  AUDIO_BITRATE_BPS,
+  AUDIO_CHANNELS,
+  AUDIO_SAMPLE_RATE,
+  BUNDLE_POLICY,
+  ICE_RESTART_DELAY_MS,
+  ICE_RESTART_MAX_ATTEMPTS,
+  PLAYOUT_DELAY_HINT,
+  RTCP_MUX_POLICY
+} from "./constants"
 import { type AudioPipeline, createAudioPipeline } from "./noise-suppressor"
 import { createVAD, type SpeakingCallback } from "./vad"
 
 const log = createLogger("WebRTC")
 
 type WebRTCState = "disconnected" | "connecting" | "connected" | "failed"
+
+// 10 seconds - long enough for slow TURN relay setup, short enough to feel responsive
+const ANSWER_TIMEOUT_MS = 10_000
+
+// Warm up WebRTC stack by creating a dummy peer connection
+// This pre-initializes Chromium's WebRTC internals so the real connection is faster
+let warmupPromise: Promise<void> | null = null
+
+export function warmupWebRTC(): void {
+  if (warmupPromise) return
+  // Start warmup in next tick to avoid blocking the ready handler
+  warmupPromise = new Promise((resolve) => setTimeout(resolve, 0)).then(doWarmup)
+}
+
+export function getWarmupPromise(): Promise<void> {
+  return warmupPromise ?? Promise.resolve()
+}
+
+async function doWarmup(): Promise<void> {
+  const start = performance.now()
+  log.info("Warming up WebRTC...")
+  try {
+    // Create and immediately close a dummy peer connection
+    // This initializes WebRTC internals without TURN allocation
+    const dummy = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    })
+    dummy.close()
+    log.info(`WebRTC warmup complete in ${(performance.now() - start).toFixed(1)}ms`)
+  } catch (err) {
+    log.warn("WebRTC warmup failed:", err)
+  }
+}
 
 class WebRTCManager {
   private peerConnection: RTCPeerConnection | null = null
@@ -23,6 +65,11 @@ class WebRTCManager {
   private wsUnsubscribes: (() => void)[] = []
   private speakingCallback: SpeakingCallback | null = null
   private vad = createVAD()
+  private answerTimeout: ReturnType<typeof setTimeout> | null = null
+  private iceRestartAttempts = 0
+  private iceRestartTimeout: ReturnType<typeof setTimeout> | null = null
+  // Perfect negotiation: client is always polite (yields to server offers)
+  private makingOffer = false
 
   /**
    * Start WebRTC connection with voice chat
@@ -49,7 +96,9 @@ class WebRTCManager {
           echoCancellation: true,
           noiseSuppression: !useCustomSuppression,
           autoGainControl: true,
-          deviceId: inputDeviceId !== "default" ? { exact: inputDeviceId } : undefined
+          deviceId: inputDeviceId !== "default" ? { exact: inputDeviceId } : undefined,
+          sampleRate: AUDIO_SAMPLE_RATE,
+          channelCount: AUDIO_CHANNELS
         },
         video: false
       })
@@ -74,6 +123,8 @@ class WebRTCManager {
       throw err
     }
 
+    // Wait for warmup to complete before creating peer connection
+    await getWarmupPromise()
     this.createPeerConnection()
 
     const streamToSend = this.processedStream || this.localStream
@@ -97,6 +148,10 @@ class WebRTCManager {
    */
   stop(): void {
     log.info("Stopping...")
+
+    this.clearAnswerTimeout()
+    this.clearIceRestartTimeout()
+    this.makingOffer = false
 
     this.stopVAD()
     this.audioPipeline?.destroy()
@@ -178,7 +233,10 @@ class WebRTCManager {
     log.info("Creating peer connection")
 
     this.peerConnection = new RTCPeerConnection({
-      iceServers: this.iceServers
+      iceServers: this.iceServers,
+      bundlePolicy: BUNDLE_POLICY,
+      rtcpMuxPolicy: RTCP_MUX_POLICY,
+      iceCandidatePoolSize: 0 // Don't pre-gather - warmup handles WebRTC init
     })
 
     this.peerConnection.onicecandidate = (event) => {
@@ -195,10 +253,15 @@ class WebRTCManager {
       switch (state) {
         case "connected":
           this.state = "connected"
+          this.iceRestartAttempts = 0 // Reset on successful connection
+          this.clearIceRestartTimeout()
           break
         case "disconnected":
+          // Attempt ICE restart after delay
+          this.scheduleIceRestart()
+          break
         case "failed":
-          this.state = "failed"
+          this.restartIce()
           break
         case "closed":
           this.state = "disconnected"
@@ -209,9 +272,16 @@ class WebRTCManager {
     this.peerConnection.ontrack = (event) => {
       log.info("Received remote track:", event.track.kind)
 
-      if (event.track.kind === "audio" && event.streams[0]) {
-        const userId = event.streams[0].id
-        audioManager.addStream(userId, event.streams[0])
+      if (event.track.kind === "audio") {
+        // Set playout delay hint for lower latency
+        if ("playoutDelayHint" in event.receiver) {
+          ;(event.receiver as { playoutDelayHint: number }).playoutDelayHint = PLAYOUT_DELAY_HINT
+        }
+
+        if (event.streams[0]) {
+          const userId = event.streams[0].id
+          audioManager.addStream(userId, event.streams[0])
+        }
       }
     }
   }
@@ -220,14 +290,86 @@ class WebRTCManager {
     if (!this.peerConnection) return
 
     log.info("Creating offer")
-    this.peerConnection.addTransceiver("audio", { direction: "sendrecv" })
+    this.makingOffer = true
 
-    const offer = await this.peerConnection.createOffer()
-    await this.peerConnection.setLocalDescription(offer)
+    try {
+      // Create transceiver and set codec preferences
+      const transceiver = this.peerConnection.addTransceiver("audio", { direction: "sendrecv" })
 
-    log.info("Sending offer")
-    if (!offer.sdp) throw new Error("Offer SDP is empty")
-    wsManager.sendRtcOffer(offer.sdp)
+      // Prioritize Opus codec
+      const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs
+      if (codecs) {
+        const opus = codecs.filter((c) => c.mimeType === "audio/opus")
+        const others = codecs.filter((c) => c.mimeType !== "audio/opus")
+        transceiver.setCodecPreferences([...opus, ...others])
+      }
+
+      const offer = await this.peerConnection.createOffer()
+      await this.peerConnection.setLocalDescription(offer)
+
+      log.info("Sending offer")
+      wsManager.sendRtcOffer(offer.sdp || "")
+
+      this.startAnswerTimeout()
+    } finally {
+      this.makingOffer = false
+    }
+  }
+
+  private startAnswerTimeout(): void {
+    this.clearAnswerTimeout()
+    this.answerTimeout = setTimeout(() => {
+      if (this.state === "connecting") {
+        log.error("Answer timeout - no response from server within", ANSWER_TIMEOUT_MS, "ms")
+        this.stop()
+        this.state = "failed"
+      }
+    }, ANSWER_TIMEOUT_MS)
+  }
+
+  private clearAnswerTimeout(): void {
+    if (this.answerTimeout) {
+      clearTimeout(this.answerTimeout)
+      this.answerTimeout = null
+    }
+  }
+
+  private clearIceRestartTimeout(): void {
+    if (this.iceRestartTimeout) {
+      clearTimeout(this.iceRestartTimeout)
+      this.iceRestartTimeout = null
+    }
+  }
+
+  private scheduleIceRestart(): void {
+    this.clearIceRestartTimeout()
+    this.iceRestartTimeout = setTimeout(() => {
+      if (this.peerConnection?.connectionState === "disconnected") {
+        this.restartIce()
+      }
+    }, ICE_RESTART_DELAY_MS)
+  }
+
+  private async restartIce(): Promise<void> {
+    if (!this.peerConnection || this.iceRestartAttempts >= ICE_RESTART_MAX_ATTEMPTS) {
+      log.error("ICE restart failed - max attempts reached")
+      this.state = "failed"
+      return
+    }
+
+    this.iceRestartAttempts++
+    log.info(`ICE restart attempt ${this.iceRestartAttempts}/${ICE_RESTART_MAX_ATTEMPTS}`)
+
+    this.makingOffer = true
+    try {
+      this.peerConnection.restartIce()
+      const offer = await this.peerConnection.createOffer({ iceRestart: true })
+      await this.peerConnection.setLocalDescription(offer)
+      wsManager.sendRtcOffer(offer.sdp || "")
+      this.startAnswerTimeout()
+    } finally {
+      this.makingOffer = false
+    }
   }
 
   private setupSignalingListeners(): void {
@@ -256,6 +398,8 @@ class WebRTCManager {
   private async handleAnswer(sdp: string): Promise<void> {
     if (!this.peerConnection) return
 
+    this.clearAnswerTimeout()
+
     const answer = new RTCSessionDescription({ type: "answer", sdp })
     await this.peerConnection.setRemoteDescription(answer)
     log.info("Set remote description (answer)")
@@ -263,6 +407,15 @@ class WebRTCManager {
 
   private async handleOffer(sdp: string): Promise<void> {
     if (!this.peerConnection) return
+
+    // Perfect negotiation: client is the "polite" peer
+    // Check for offer collision: we're making an offer while receiving one
+    const offerCollision = this.makingOffer || this.peerConnection.signalingState !== "stable"
+
+    // As the polite peer, we always accept incoming offers (rollback if needed)
+    if (offerCollision) {
+      log.info("Offer collision detected - rolling back local offer (polite peer)")
+    }
 
     const offer = new RTCSessionDescription({ type: "offer", sdp })
     await this.peerConnection.setRemoteDescription(offer)

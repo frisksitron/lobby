@@ -7,7 +7,8 @@ let sharedAudioContext: AudioContext | null = null
 export function getSharedAudioContext(): AudioContext {
   if (!sharedAudioContext || sharedAudioContext.state === "closed") {
     sharedAudioContext = new AudioContext({
-      sampleRate: 48000 // Required for RNNoise
+      sampleRate: 48000, // Required for RNNoise
+      latencyHint: "interactive" // Optimize for real-time audio
     })
   }
   return sharedAudioContext
