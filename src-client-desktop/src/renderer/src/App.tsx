@@ -14,7 +14,7 @@ import { useUI } from "./stores/ui"
 
 const MainUI: Component = () => (
   <>
-    <main class="flex-1 flex flex-col min-w-0">
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
       <MessageFeed />
       <TypingIndicator />
       <MessageInput />

@@ -63,8 +63,8 @@ const MessageInput: Component = () => {
   }
 
   return (
-    <div class="p-4 border-t border-border overflow-hidden">
-      <form onSubmit={handleSubmit} class="min-w-0">
+    <div class="px-2 mb-5">
+      <form onSubmit={handleSubmit} class="min-w-0 flex">
         <textarea
           ref={textareaRef}
           value={inputValue()}
@@ -73,7 +73,7 @@ const MessageInput: Component = () => {
           placeholder={getPlaceholder()}
           disabled={isDisabled()}
           rows={1}
-          class="w-full min-h-[38px] bg-surface-elevated border border-border rounded-lg px-4 py-2 text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed resize-none overflow-y-auto"
+          class="w-full bg-surface-elevated ring-1 ring-border rounded px-4 py-1.5 leading-6 text-text-primary placeholder-text-secondary focus:outline-none focus:ring-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed resize-none overflow-y-auto"
         />
       </form>
     </div>

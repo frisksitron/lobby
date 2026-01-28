@@ -162,7 +162,7 @@ const MessageFeed: Component = () => {
 
   return (
     <div class="relative flex-1 min-h-0 flex flex-col">
-      <div ref={feedRef} class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-2 pb-8">
+      <div ref={feedRef} class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-2 pb-2">
         <div ref={sentinelRef} class="h-1" />
 
         <Show when={!hasMoreHistory() && currentMessages().length > 0}>

@@ -35,7 +35,10 @@ function formatTimestamp(timestamp: string): string {
 }
 
 function formatShortTime(timestamp: string): string {
-  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  })
 }
 
 const Message: Component<MessageProps> = (props) => {
@@ -54,13 +57,11 @@ const Message: Component<MessageProps> = (props) => {
       <Show
         when={isFirstInGroup()}
         fallback={
-          <div class="flex items-center">
-            <span class="w-[52px] text-xs text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity text-right pr-2">
+          <div class="flex items-baseline gap-3">
+            <span class="w-10 shrink-0 text-xs text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity text-right">
               {formatShortTime(props.message.timestamp)}
             </span>
-            <p class="text-text-primary break-all whitespace-pre-wrap flex-1">
-              {props.message.content}
-            </p>
+            <p class="text-text-primary break-all whitespace-pre-wrap">{props.message.content}</p>
           </div>
         }
       >
@@ -70,15 +71,12 @@ const Message: Component<MessageProps> = (props) => {
             avatarUrl={props.message.authorAvatarUrl}
             status={author()?.status}
             size="md"
-            nameClass="font-semibold"
           />
           <span class="text-xs text-text-secondary">
             {formatTimestamp(props.message.timestamp)}
           </span>
         </div>
-        <p class="text-text-primary break-all whitespace-pre-wrap ml-[52px]">
-          {props.message.content}
-        </p>
+        <p class="text-text-primary break-all whitespace-pre-wrap ml-13">{props.message.content}</p>
       </Show>
     </div>
   )

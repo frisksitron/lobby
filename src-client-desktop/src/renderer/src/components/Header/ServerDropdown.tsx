@@ -51,7 +51,7 @@ const ServerDropdown: Component = () => {
         }}
         class="flex items-center gap-2 px-3 py-2 rounded hover:bg-surface-elevated transition-colors max-w-[200px]"
       >
-        <span class="font-semibold text-text-primary truncate">
+        <span class="font-medium text-sm text-text-primary truncate">
           {activeServer()?.name || "Select Server"}
         </span>
         <Show when={isServerUnavailable()}>

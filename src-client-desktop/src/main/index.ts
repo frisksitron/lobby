@@ -150,6 +150,22 @@ function createWindow(): void {
     return { action: "deny" }
   })
 
+  // Handle zoom shortcuts directly - fixes Ctrl+= not working on some keyboards
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || !input.control || input.alt) return
+
+    if (input.key === "=" || input.key === "+") {
+      mainWindow?.webContents.setZoomLevel(mainWindow.webContents.getZoomLevel() + 0.5)
+      event.preventDefault()
+    } else if (input.key === "-") {
+      mainWindow?.webContents.setZoomLevel(mainWindow.webContents.getZoomLevel() - 0.5)
+      event.preventDefault()
+    } else if (input.key === "0") {
+      mainWindow?.webContents.setZoomLevel(0)
+      event.preventDefault()
+    }
+  })
+
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {

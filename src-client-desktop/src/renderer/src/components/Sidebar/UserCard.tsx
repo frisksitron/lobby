@@ -99,7 +99,6 @@ const UserCard: Component<UserCardProps> = (props) => {
                   avatarUrl={user.avatarUrl}
                   status={user.status}
                   size="lg"
-                  nameClass="text-lg font-semibold"
                 />
                 <Show when={user.createdAt}>
                   <p class="text-xs text-text-secondary mt-2">

@@ -48,7 +48,7 @@ const MemberItem: Component<MemberItemProps> = (props) => {
   return (
     <div
       ref={itemRef}
-      class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer hover:bg-surface-elevated"
+      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors cursor-pointer hover:bg-surface-elevated"
       classList={{ "bg-surface-elevated": props.isSelected }}
       onClick={handleClick}
     >
@@ -84,7 +84,7 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
   return (
     <div
       ref={itemRef}
-      class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer hover:bg-surface-elevated/50"
+      class="flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors cursor-pointer hover:bg-surface-elevated/50"
       classList={{ "bg-surface-elevated/50": props.isSelected }}
       onClick={handleClick}
     >
@@ -130,7 +130,7 @@ const VoiceControlsRow: Component = () => {
 
   return (
     <>
-      <div class="flex items-center justify-center gap-2 mb-2">
+      <div class="flex items-center justify-center gap-1.5 mb-3">
         <ButtonWithIcon
           icon={
             localVoice().muted ? (
@@ -235,15 +235,15 @@ const Sidebar: Component = () => {
   }
 
   return (
-    <div class="w-60 bg-surface border-l border-border flex flex-col h-full">
-      <div class="flex-1 overflow-y-auto p-2">
-        <div class="mb-4">
-          <h4 class="text-xs font-semibold text-text-secondary uppercase px-3 mb-1">
-            Online - {groupedUsers().voiceOnline.length + groupedUsers().online.length}
+    <div class="w-60 bg-surface rounded-xl flex flex-col m-2 overflow-hidden ring-1 ring-white/8">
+      <div class="flex-1 overflow-y-auto px-2 py-3">
+        <div class="space-y-1">
+          <h4 class="text-xs font-medium text-text-muted px-2 pb-1">
+            Online — {groupedUsers().voiceOnline.length + groupedUsers().online.length}
           </h4>
 
           <Show when={groupedUsers().voiceOnline.length > 0}>
-            <div class="ring-1 ring-accent/50 rounded-lg bg-linear-to-br from-accent/10 to-surface/50">
+            <div class="ring-1 ring-accent/25 rounded-lg bg-accent/10 mb-1 space-y-1">
               <For each={groupedUsers().voiceOnline}>
                 {(user) => (
                   <VoiceMemberItem
@@ -269,9 +269,9 @@ const Sidebar: Component = () => {
           </For>
         </div>
 
-        <div>
-          <h4 class="text-xs font-semibold text-text-secondary uppercase px-3 mb-1">
-            Offline - {groupedUsers().offline.length}
+        <div class="space-y-1 mt-4">
+          <h4 class="text-xs font-medium text-text-muted px-2 pb-1">
+            Offline — {groupedUsers().offline.length}
           </h4>
           <For each={groupedUsers().offline}>
             {(user) => (
@@ -286,7 +286,7 @@ const Sidebar: Component = () => {
         </div>
       </div>
 
-      <div class="border-t border-border px-3 py-3">
+      <div class="border-t border-white/6 px-3 py-3">
         <Show when={localVoice().inVoice}>
           <VoiceControlsRow />
         </Show>

@@ -7,12 +7,10 @@ interface UserIdentityProps {
   status?: "online" | "idle" | "dnd" | "offline"
   size?: "sm" | "md" | "lg"
   speaking?: boolean // VAD ring - only for voice members
-  nameClass?: string // Optional override for name styling
 }
 
 const UserIdentity: Component<UserIdentityProps> = (props) => {
   const size = () => props.size || "md"
-  const nameClass = () => props.nameClass || "text-sm"
 
   return (
     <div class="flex items-center gap-3 min-w-0">
@@ -23,7 +21,7 @@ const UserIdentity: Component<UserIdentityProps> = (props) => {
         size={size()}
         speaking={props.speaking}
       />
-      <span class={`text-text-primary truncate ${nameClass()}`}>{props.name}</span>
+      <span class="text-sm font-semibold text-text-primary truncate">{props.name}</span>
     </div>
   )
 }
