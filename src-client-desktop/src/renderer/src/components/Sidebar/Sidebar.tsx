@@ -1,4 +1,5 @@
 import {
+  TbOutlineActivity,
   TbOutlineHeadphones,
   TbOutlineHeadphonesOff,
   TbOutlineHeadset,
@@ -25,6 +26,7 @@ import Button from "../shared/Button"
 import ButtonWithIcon from "../shared/ButtonWithIcon"
 import UserIdentity from "../shared/UserIdentity"
 import UserCard from "./UserCard"
+import VoiceStatsPanel from "./VoiceStatsPanel"
 
 interface MemberItemProps {
   user: User
@@ -110,50 +112,76 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
 }
 
 const VoiceControlsRow: Component = () => {
-  const { localVoice, toggleMute, toggleDeafen, leaveVoice } = useSession()
+  const { localVoice, toggleMute, toggleDeafen } = useSession()
+  const [statsOpen, setStatsOpen] = createSignal(false)
+  const [statsAnchorRect, setStatsAnchorRect] = createSignal<DOMRect | null>(null)
+  let statsButtonRef: HTMLButtonElement | undefined
+
+  const handleStatsClick = () => {
+    if (statsButtonRef) {
+      setStatsAnchorRect(statsButtonRef.getBoundingClientRect())
+    }
+    setStatsOpen(!statsOpen())
+  }
+
+  const handleStatsClose = () => {
+    setStatsOpen(false)
+  }
 
   return (
-    <div class="flex items-center gap-2">
-      <ButtonWithIcon
-        icon={
-          localVoice().muted ? (
-            <TbOutlineMicrophoneOff class="w-5 h-5" />
-          ) : (
-            <TbOutlineMicrophone class="w-5 h-5" />
-          )
-        }
-        variant={localVoice().muted ? "danger" : "secondary"}
-        round
-        onClick={toggleMute}
-        title={localVoice().muted ? "Unmute" : "Mute"}
-      />
+    <>
+      <div class="flex items-center justify-center gap-2 mb-2">
+        <ButtonWithIcon
+          icon={
+            localVoice().muted ? (
+              <TbOutlineMicrophoneOff class="w-5 h-5" />
+            ) : (
+              <TbOutlineMicrophone class="w-5 h-5" />
+            )
+          }
+          variant={localVoice().muted ? "danger" : "secondary"}
+          round
+          onClick={toggleMute}
+          title={localVoice().muted ? "Unmute" : "Mute"}
+        />
 
-      <ButtonWithIcon
-        icon={
-          localVoice().deafened ? (
-            <TbOutlineHeadphonesOff class="w-5 h-5" />
-          ) : (
-            <TbOutlineHeadphones class="w-5 h-5" />
-          )
-        }
-        variant={localVoice().deafened ? "danger" : "secondary"}
-        round
-        onClick={toggleDeafen}
-        title={localVoice().deafened ? "Undeafen" : "Deafen"}
-      />
+        <ButtonWithIcon
+          icon={
+            localVoice().deafened ? (
+              <TbOutlineHeadphonesOff class="w-5 h-5" />
+            ) : (
+              <TbOutlineHeadphones class="w-5 h-5" />
+            )
+          }
+          variant={localVoice().deafened ? "danger" : "secondary"}
+          round
+          onClick={toggleDeafen}
+          title={localVoice().deafened ? "Undeafen" : "Deafen"}
+        />
 
-      <Button variant="danger" class="flex-1" onClick={leaveVoice}>
-        <span class="flex items-center justify-center gap-2">
-          <TbOutlinePhoneX class="w-4 h-4" />
-          Leave
-        </span>
-      </Button>
-    </div>
+        <button
+          ref={statsButtonRef}
+          type="button"
+          class="p-2 rounded-full transition-colors hover:bg-surface-elevated"
+          classList={{ "bg-surface-elevated": statsOpen() }}
+          onClick={handleStatsClick}
+          title="Voice Stats"
+        >
+          <TbOutlineActivity class="w-5 h-5 text-text-secondary" />
+        </button>
+      </div>
+
+      <VoiceStatsPanel
+        isOpen={statsOpen()}
+        onClose={handleStatsClose}
+        anchorRect={statsAnchorRect()}
+      />
+    </>
   )
 }
 
 const Sidebar: Component = () => {
-  const { localVoice, joinVoice, session } = useSession()
+  const { localVoice, joinVoice, leaveVoice, session } = useSession()
   const { isServerUnavailable, currentUser } = useConnection()
   const { getAllUsers } = useUsers()
   const { settings } = useSettings()
@@ -208,37 +236,6 @@ const Sidebar: Component = () => {
 
   return (
     <div class="w-60 bg-surface border-l border-border flex flex-col h-full">
-      <div class="border-b border-border">
-        <div class="px-3 p-3">
-          <Switch>
-            <Match when={localVoice().inVoice}>
-              <VoiceControlsRow />
-            </Match>
-            <Match when={showConnecting()}>
-              <Button variant="secondary" class="w-full" disabled>
-                <span class="flex items-center justify-center gap-2">
-                  <TbOutlineHeadset class="w-4 h-4 animate-pulse" />
-                  Connecting...
-                </span>
-              </Button>
-            </Match>
-            <Match when={true}>
-              <Button
-                variant="primary"
-                class="w-full"
-                onClick={handleJoinVoice}
-                disabled={!canJoinVoice()}
-              >
-                <span class="flex items-center justify-center gap-2">
-                  <TbOutlineHeadset class="w-4 h-4" />
-                  {isServerUnavailable() ? "Unavailable" : "Join Voice"}
-                </span>
-              </Button>
-            </Match>
-          </Switch>
-        </div>
-      </div>
-
       <div class="flex-1 overflow-y-auto p-2">
         <div class="mb-4">
           <h4 class="text-xs font-semibold text-text-secondary uppercase px-3 mb-1">
@@ -287,6 +284,44 @@ const Sidebar: Component = () => {
             )}
           </For>
         </div>
+      </div>
+
+      <div class="border-t border-border px-3 py-3">
+        <Show when={localVoice().inVoice}>
+          <VoiceControlsRow />
+        </Show>
+
+        <Switch>
+          <Match when={localVoice().inVoice}>
+            <Button variant="danger" class="w-full" onClick={leaveVoice}>
+              <span class="flex items-center justify-center gap-2">
+                <TbOutlinePhoneX class="w-4 h-4" />
+                Leave
+              </span>
+            </Button>
+          </Match>
+          <Match when={showConnecting()}>
+            <Button variant="secondary" class="w-full" disabled>
+              <span class="flex items-center justify-center gap-2">
+                <TbOutlineHeadset class="w-4 h-4 animate-pulse" />
+                Connecting...
+              </span>
+            </Button>
+          </Match>
+          <Match when={true}>
+            <Button
+              variant="primary"
+              class="w-full"
+              onClick={handleJoinVoice}
+              disabled={!canJoinVoice()}
+            >
+              <span class="flex items-center justify-center gap-2">
+                <TbOutlineHeadset class="w-4 h-4" />
+                {isServerUnavailable() ? "Unavailable" : "Join Voice"}
+              </span>
+            </Button>
+          </Match>
+        </Switch>
       </div>
 
       <UserCard

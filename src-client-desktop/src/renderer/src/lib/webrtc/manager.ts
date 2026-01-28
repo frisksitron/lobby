@@ -229,6 +229,13 @@ class WebRTCManager {
     return this.state
   }
 
+  /**
+   * Get peer connection for stats collection
+   */
+  getPeerConnection(): RTCPeerConnection | null {
+    return this.peerConnection
+  }
+
   private createPeerConnection(): void {
     log.info("Creating peer connection")
 
