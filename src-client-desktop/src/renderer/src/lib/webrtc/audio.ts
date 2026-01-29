@@ -18,6 +18,7 @@ class AudioManager {
   private audioNodes: Map<string, AudioNode> = new Map()
   private userVolumes: Map<string, number> = new Map() // 0-200 scale
   private deafened = false
+  private outputDeviceApplied = false
 
   /**
    * Load user volumes from settings
@@ -27,6 +28,21 @@ class AudioManager {
       this.userVolumes.set(userId, volume)
     }
     log.info(`Loaded volumes for ${this.userVolumes.size} users`)
+  }
+
+  /**
+   * Apply the saved output device setting to the audio context.
+   * Called when joining voice to ensure the correct device is used from the start.
+   */
+  applyOutputDevice(): void {
+    if (this.outputDeviceApplied) return
+
+    const { settings } = useSettings()
+    const outputDeviceId = settings().outputDevice
+    if (outputDeviceId !== "default") {
+      this.setOutputDevice(outputDeviceId)
+    }
+    this.outputDeviceApplied = true
   }
 
   /**
@@ -56,17 +72,6 @@ class AudioManager {
     const element = document.createElement("audio")
     element.srcObject = stream
     element.muted = true // Muted because audio goes through Web Audio API
-
-    // Set output device if supported (for the AudioContext)
-    const { settings } = useSettings()
-    const outputDeviceId = settings().outputDevice
-    if (outputDeviceId !== "default" && "setSinkId" in ctx) {
-      ;(ctx as AudioContext & { setSinkId: (id: string) => Promise<void> })
-        .setSinkId(outputDeviceId)
-        .catch((err: Error) => {
-          log.error("Failed to set output device:", err)
-        })
-    }
 
     // Resume context if suspended (autoplay policy)
     if (ctx.state === "suspended") {
@@ -104,6 +109,7 @@ class AudioManager {
       log.info(`Removed stream for user ${userId}`)
     })
     this.audioNodes.clear()
+    this.outputDeviceApplied = false
     log.info("All streams removed")
   }
 
@@ -157,6 +163,27 @@ class AudioManager {
         node.gain.gain.setTargetAtTime(clampedVolume / 100, ctx.currentTime, 0.01)
       }
     })
+  }
+
+  /**
+   * Set output device for all audio playback
+   */
+  setOutputDevice(deviceId: string): void {
+    const ctx = getSharedAudioContext()
+    if (!("setSinkId" in ctx)) {
+      log.error("setSinkId not supported on this AudioContext")
+      return
+    }
+
+    const sinkId = deviceId === "default" ? "" : deviceId
+    ;(ctx as AudioContext & { setSinkId: (id: string) => Promise<void> })
+      .setSinkId(sinkId)
+      .then(() => {
+        log.info(`Output device set to: ${deviceId}`)
+      })
+      .catch((err: Error) => {
+        log.error("Failed to set output device:", err)
+      })
   }
 
   /**

@@ -11,7 +11,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   lastActiveServerId: null,
   noiseSuppression: "rnnoise",
   themeId: "discord",
-  userVolumes: {}
+  userVolumes: {},
+  echoCancellation: false,
+  compressor: true
 }
 
 export type { AppSettings, NoiseSuppressionAlgorithm }
@@ -26,7 +28,8 @@ export function useSettings() {
     setIsLoading(true)
     try {
       const stored = await window.api.settings.getAll()
-      setSettings(stored)
+      // Merge with defaults to handle missing fields from older settings
+      setSettings({ ...DEFAULT_SETTINGS, ...stored })
     } catch (error) {
       log.error("Failed to load settings:", error)
     } finally {

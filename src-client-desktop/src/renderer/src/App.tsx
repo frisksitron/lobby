@@ -9,6 +9,7 @@ import SettingsModal from "./components/modals/SettingsModal"
 import Sidebar from "./components/Sidebar/Sidebar"
 import ConfirmDialog from "./components/shared/ConfirmDialog"
 import { useConnection, useServers } from "./stores/core"
+import { useSettings } from "./stores/settings"
 import { useTheme } from "./stores/theme"
 import { useUI } from "./stores/ui"
 
@@ -35,11 +36,13 @@ const AppContent: Component = () => {
   const connection = useConnection()
   const { activeServerId } = useServers()
   const { loadTheme } = useTheme()
+  const { loadSettings } = useSettings()
 
   const showAuth = () => connection.needsAuth() || connection.connectionState() === "disconnected"
 
   onMount(async () => {
     await loadTheme()
+    loadSettings()
     connection.initialize()
   })
 

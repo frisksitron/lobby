@@ -34,6 +34,8 @@ interface AppSettings {
   noiseSuppression: NoiseSuppressionAlgorithm
   themeId: string
   userVolumes: Record<string, number>
+  echoCancellation: boolean
+  compressor: boolean
 }
 
 interface ServerEntry {
@@ -64,7 +66,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   lastActiveServerId: null,
   noiseSuppression: "rnnoise",
   themeId: "discord",
-  userVolumes: {}
+  userVolumes: {},
+  echoCancellation: false,
+  compressor: true
 }
 
 const INSTANCE_ID = process.env.LOBBY_INSTANCE_ID || ""

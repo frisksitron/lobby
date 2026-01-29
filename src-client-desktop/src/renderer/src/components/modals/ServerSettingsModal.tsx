@@ -5,7 +5,6 @@ import { createLogger } from "../../lib/logger"
 import { useConnection, useServers } from "../../stores/core"
 import { useUI } from "../../stores/ui"
 import Button from "../shared/Button"
-import DialogFooter from "../shared/DialogFooter"
 import FormField, { INPUT_CLASS } from "../shared/FormField"
 import Modal from "../shared/Modal"
 
@@ -92,9 +91,17 @@ const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
     })
   }
 
+  const footer = (
+    <div class="flex justify-end">
+      <Button variant="primary" onClick={props.onClose}>
+        Done
+      </Button>
+    </div>
+  )
+
   return (
-    <Modal isOpen={props.isOpen} onClose={props.onClose} title="Account">
-      <div class="space-y-6">
+    <Modal isOpen={props.isOpen} onClose={props.onClose} title="Account" footer={footer}>
+      <div class="space-y-6 pb-12 pr-4">
         <section>
           <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Your Profile</h3>
           <FormField label="Username" error={saveError() || undefined}>
@@ -126,12 +133,6 @@ const ServerSettingsModal: Component<ServerSettingsModalProps> = (props) => {
             Remove yourself from this server, you can rejoin later.
           </p>
         </section>
-
-        <DialogFooter>
-          <Button variant="primary" onClick={props.onClose}>
-            Done
-          </Button>
-        </DialogFooter>
       </div>
     </Modal>
   )

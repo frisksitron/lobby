@@ -87,6 +87,8 @@ export interface AppSettings {
   noiseSuppression: NoiseSuppressionAlgorithm
   themeId: string
   userVolumes: Record<string, number> // userId -> volume (0-200)
+  echoCancellation: boolean
+  compressor: boolean
 }
 
 export interface ServerEntry {

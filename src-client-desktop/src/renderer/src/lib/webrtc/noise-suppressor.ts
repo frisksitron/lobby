@@ -24,15 +24,17 @@ export interface AudioPipelineConfig {
   audioContext: AudioContext
   algorithm: NoiseSuppressionAlgorithm
   enabled: boolean
+  compressorEnabled: boolean
 }
 
 export interface AudioPipelineSettings {
   algorithm?: NoiseSuppressionAlgorithm
   enabled?: boolean
+  compressorEnabled?: boolean
 }
 
 export interface AudioPipeline {
-  process(input: MediaStream): MediaStream
+  getOutputStream(): MediaStream
   configure(settings: AudioPipelineSettings): void
   destroy(): void
 }
@@ -149,18 +151,34 @@ async function registerWorklets(ctx: AudioContext, wasm: WasmBinaries): Promise<
 // Factory function
 // ============================================================================
 
-export async function createAudioPipeline(config: AudioPipelineConfig): Promise<AudioPipeline> {
+export async function createAudioPipeline(
+  inputStream: MediaStream,
+  config: AudioPipelineConfig
+): Promise<AudioPipeline> {
   const wasm = await getWasmBinaries()
   await registerWorklets(config.audioContext, wasm)
 
+  const ctx = config.audioContext
+
+  // Create nodes immediately - bound to this stream
+  const sourceNode = ctx.createMediaStreamSource(inputStream)
+  const destinationNode = ctx.createMediaStreamDestination()
+
+  // Create compressor node - leveling compressor for gaming headsets
+  // Handles wide dynamic range (quiet speech to screaming)
+  const compressor = ctx.createDynamicsCompressor()
+  compressor.threshold.value = -40 // Catch quiet speech for makeup gain boost
+  compressor.knee.value = 20 // Soft knee for natural sound
+  compressor.ratio.value = 8 // Strong leveling without killing dynamics
+  compressor.attack.value = 0.005 // 5ms - fast enough to catch screams
+  compressor.release.value = 0.25 // 250ms - natural for speech rhythm
+
   // Closure state
-  let sourceNode: MediaStreamAudioSourceNode | null = null
-  let destinationNode: MediaStreamAudioDestinationNode | null = null
   let speexNode: SpeexWorkletNode | null = null
   let rnnoiseNode: RnnoiseWorkletNode | null = null
   let currentAlgorithm = config.algorithm
   let enabled = config.enabled
-  const ctx = config.audioContext
+  let compressorEnabled = config.compressorEnabled
 
   function getOrCreateNode(algorithm: NoiseSuppressionAlgorithm): AudioWorkletNode | null {
     try {
@@ -211,67 +229,62 @@ export async function createAudioPipeline(config: AudioPipelineConfig): Promise<
     } catch {
       // Ignore disconnect errors
     }
+    try {
+      compressor?.disconnect()
+    } catch {
+      // Ignore disconnect errors
+    }
   }
 
   function rebuildGraph(): void {
-    if (!sourceNode || !destinationNode) {
-      log.info("rebuildGraph: no nodes yet, skipping")
-      return
-    }
-
     // Disconnect all existing connections
     disconnectAll()
 
-    // Check if we should bypass (disabled or no algorithm)
-    const shouldBypass = !enabled || currentAlgorithm === "none"
+    // Check if we should bypass suppressor (disabled or no algorithm)
+    const suppressorBypass = !enabled || currentAlgorithm === "none"
+    const activeNode = suppressorBypass ? null : getOrCreateNode(currentAlgorithm)
 
-    if (shouldBypass) {
-      // Bypass: connect source directly to destination
-      sourceNode.connect(destinationNode)
-      log.info("Graph rebuilt: bypass mode")
-      return
-    }
-
-    // Try to connect through suppressor
-    const activeNode = getOrCreateNode(currentAlgorithm)
-    if (activeNode) {
-      try {
+    // Determine the graph structure based on enabled features
+    // Graph: source → [suppressor] → [compressor] → destination
+    try {
+      if (!activeNode && !compressorEnabled) {
+        // Full bypass: source → destination
+        sourceNode.connect(destinationNode)
+        log.info("Graph rebuilt: bypass mode")
+      } else if (!activeNode && compressorEnabled) {
+        // Compressor only: source → compressor → destination
+        sourceNode.connect(compressor)
+        compressor.connect(destinationNode)
+        log.info("Graph rebuilt: compressor only")
+      } else if (activeNode && !compressorEnabled) {
+        // Suppressor only: source → suppressor → destination
         sourceNode.connect(activeNode)
         activeNode.connect(destinationNode)
         log.info(`Graph rebuilt: ${currentAlgorithm}`)
-      } catch (err) {
-        // If connection fails, fall back to bypass
-        log.error("Failed to connect suppressor node:", err)
-        disconnectAll()
-        sourceNode.connect(destinationNode)
-        log.info("Graph rebuilt: bypass (connection error)")
+      } else if (activeNode && compressorEnabled) {
+        // Both: source → suppressor → compressor → destination
+        sourceNode.connect(activeNode)
+        activeNode.connect(compressor)
+        compressor.connect(destinationNode)
+        log.info(`Graph rebuilt: ${currentAlgorithm} + compressor`)
       }
-    } else {
-      // No active node available, use bypass
+    } catch (err) {
+      // If connection fails, fall back to bypass
+      log.error("Failed to connect audio graph:", err)
+      disconnectAll()
       sourceNode.connect(destinationNode)
-      log.info("Graph rebuilt: bypass (no node available)")
+      log.info("Graph rebuilt: bypass (connection error)")
     }
   }
+
+  // Build initial graph
+  rebuildGraph()
 
   log.info("Pipeline created")
 
   return {
-    process(input: MediaStream): MediaStream {
-      try {
-        // Create the audio graph nodes
-        sourceNode = ctx.createMediaStreamSource(input)
-        destinationNode = ctx.createMediaStreamDestination()
-        log.info("Created audio graph nodes")
-
-        // Build the initial graph based on current state
-        rebuildGraph()
-
-        // Return the destination stream
-        return destinationNode.stream
-      } catch (err) {
-        log.error("Failed to create audio graph, returning raw stream:", err)
-        return input
-      }
+    getOutputStream(): MediaStream {
+      return destinationNode.stream
     },
 
     configure(settings: AudioPipelineSettings): void {
@@ -287,9 +300,19 @@ export async function createAudioPipeline(config: AudioPipelineConfig): Promise<
         needsRebuild = true
       }
 
+      if (
+        settings.compressorEnabled !== undefined &&
+        settings.compressorEnabled !== compressorEnabled
+      ) {
+        compressorEnabled = settings.compressorEnabled
+        needsRebuild = true
+      }
+
       if (needsRebuild) {
         rebuildGraph()
-        log.info(`Configured: enabled=${enabled}, algorithm=${currentAlgorithm}`)
+        log.info(
+          `Configured: enabled=${enabled}, algorithm=${currentAlgorithm}, compressor=${compressorEnabled}`
+        )
       }
     },
 
@@ -302,8 +325,6 @@ export async function createAudioPipeline(config: AudioPipelineConfig): Promise<
 
       speexNode = null
       rnnoiseNode = null
-      sourceNode = null
-      destinationNode = null
     }
   }
 }

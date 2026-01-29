@@ -70,6 +70,7 @@ class WebRTCManager {
   private iceRestartTimeout: ReturnType<typeof setTimeout> | null = null
   // Perfect negotiation: client is always polite (yields to server offers)
   private makingOffer = false
+  private muted = false
 
   /**
    * Start WebRTC connection with voice chat
@@ -91,11 +92,13 @@ class WebRTCManager {
       const noiseSuppressionAlgorithm = settings().noiseSuppression
       const useCustomSuppression = noiseSuppressionAlgorithm !== "none"
 
+      const echoCancellation = settings().echoCancellation
+
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
+          echoCancellation,
           noiseSuppression: !useCustomSuppression,
-          autoGainControl: true,
+          autoGainControl: false,
           deviceId: inputDeviceId !== "default" ? { exact: inputDeviceId } : undefined,
           sampleRate: AUDIO_SAMPLE_RATE,
           channelCount: AUDIO_CHANNELS
@@ -109,13 +112,17 @@ class WebRTCManager {
         await audioContext.resume()
       }
 
-      this.audioPipeline = await createAudioPipeline({
+      // Apply saved output device setting to audio context
+      audioManager.applyOutputDevice()
+
+      this.audioPipeline = await createAudioPipeline(this.localStream, {
         audioContext,
         algorithm: noiseSuppressionAlgorithm,
-        enabled: useCustomSuppression
+        enabled: useCustomSuppression,
+        compressorEnabled: settings().compressor
       })
 
-      this.processedStream = this.audioPipeline.process(this.localStream)
+      this.processedStream = this.audioPipeline.getOutputStream()
       this.setupVAD(audioContext)
     } catch (err) {
       log.error("Failed to get user media:", err)
@@ -174,6 +181,7 @@ class WebRTCManager {
     audioManager.removeAllStreams()
     closeSharedAudioContext()
     this.state = "disconnected"
+    this.muted = false
   }
 
   /**
@@ -181,6 +189,7 @@ class WebRTCManager {
    * @param notifyServer - If true, sends update to server. Set to false when using setVoiceState for combined updates.
    */
   setMuted(muted: boolean, notifyServer: boolean = true): void {
+    this.muted = muted
     const streamToMute = this.processedStream || this.localStream
     if (streamToMute) {
       streamToMute.getAudioTracks().forEach((track) => {
@@ -471,6 +480,91 @@ class WebRTCManager {
   updateNoiseSuppressionSettings(enabled: boolean, algorithm: NoiseSuppressionAlgorithm): void {
     this.audioPipeline?.configure({ enabled, algorithm })
     log.info(`Updated noise suppression: enabled=${enabled}, algorithm=${algorithm}`)
+  }
+
+  /**
+   * Update compressor settings at runtime
+   */
+  updateCompressorSettings(enabled: boolean): void {
+    this.audioPipeline?.configure({ compressorEnabled: enabled })
+    log.info(`Updated compressor: enabled=${enabled}`)
+  }
+
+  /**
+   * Restart audio capture with current settings (for echo cancellation/auto gain changes)
+   */
+  async restartAudioCapture(): Promise<void> {
+    if (this.state !== "connected" || !this.peerConnection) {
+      log.info("Not in voice, skipping audio capture restart")
+      return
+    }
+
+    log.info("Restarting audio capture...")
+
+    const { settings } = useSettings()
+    const inputDeviceId = settings().inputDevice
+    const noiseSuppressionAlgorithm = settings().noiseSuppression
+    const useCustomSuppression = noiseSuppressionAlgorithm !== "none"
+    const echoCancellation = settings().echoCancellation
+
+    // Stop VAD before replacing stream
+    this.stopVAD()
+
+    // Stop old local stream tracks
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) track.stop()
+    }
+
+    try {
+      // Get new stream with updated constraints
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation,
+          noiseSuppression: !useCustomSuppression,
+          autoGainControl: false,
+          deviceId: inputDeviceId !== "default" ? { exact: inputDeviceId } : undefined,
+          sampleRate: AUDIO_SAMPLE_RATE,
+          channelCount: AUDIO_CHANNELS
+        },
+        video: false
+      })
+      log.info("Got new local audio stream")
+
+      // Destroy old pipeline and create a new one bound to the new stream
+      this.audioPipeline?.destroy()
+      this.audioPipeline = await createAudioPipeline(this.localStream, {
+        audioContext: getSharedAudioContext(),
+        algorithm: noiseSuppressionAlgorithm,
+        enabled: useCustomSuppression,
+        compressorEnabled: settings().compressor
+      })
+      this.processedStream = this.audioPipeline.getOutputStream()
+
+      // Replace track on sender
+      const streamToSend = this.processedStream || this.localStream
+      const newTrack = streamToSend?.getAudioTracks()[0]
+      if (newTrack) {
+        const sender = this.peerConnection.getSenders().find((s) => s.track?.kind === "audio")
+        if (sender) {
+          await sender.replaceTrack(newTrack)
+          log.info("Replaced audio track on sender")
+
+          // Restore mute state on new track
+          if (this.muted) {
+            newTrack.enabled = false
+            log.info("Restored mute state on new track")
+          }
+        }
+      }
+
+      // Restart VAD with new stream
+      const audioContext = getSharedAudioContext()
+      this.setupVAD(audioContext)
+
+      log.info("Audio capture restart complete")
+    } catch (err) {
+      log.error("Failed to restart audio capture:", err)
+    }
   }
 }
 
