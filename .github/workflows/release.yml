@@ -10,24 +10,29 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    defaults:
+      run:
+        working-directory: src-client-desktop
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src-client-desktop/package-lock.json
 
       - name: Set version from tag
         run: npm version ${GITHUB_REF_NAME#v} --no-git-tag-version --allow-same-version
-        working-directory: src-client-desktop
         shell: bash
 
       - name: Install dependencies
         run: npm ci
-        working-directory: src-client-desktop
+
+      - name: Lint
+        run: npm run check
 
       - name: Build and publish
         run: npm run build && npx electron-builder --win --publish always
-        working-directory: src-client-desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
