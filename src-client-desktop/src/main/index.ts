@@ -1,6 +1,16 @@
 import { join } from "node:path"
 import { electronApp, is, optimizer } from "@electron-toolkit/utils"
-import { app, BrowserWindow, ipcMain, Menu, safeStorage, screen, shell, Tray } from "electron"
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  safeStorage,
+  screen,
+  shell,
+  Tray
+} from "electron"
 import Store from "electron-store"
 import icon from "../../resources/icon.png?asset"
 import { createLogger } from "./logger"
@@ -293,6 +303,10 @@ app.whenReady().then(() => {
       log.error("Failed to clear settings:", error)
       return { success: false }
     }
+  })
+
+  ipcMain.handle("theme:set-native", (_event, mode: "light" | "dark") => {
+    nativeTheme.themeSource = mode
   })
 
   ipcMain.handle("storage:servers:get-all", () => {

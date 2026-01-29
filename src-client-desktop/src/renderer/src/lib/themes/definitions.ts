@@ -4,6 +4,7 @@ import type { Theme } from "../../../../shared/types"
 export const discordTheme: Theme = {
   id: "discord",
   name: "Discord",
+  mode: "dark",
   colors: {
     background: "#1A1A1E", // Main content background
     surface: "#121214", // Sidebar/secondary background
@@ -24,6 +25,7 @@ export const discordTheme: Theme = {
 export const catppuccinMochaTheme: Theme = {
   id: "catppuccin-mocha",
   name: "Catppuccin Mocha",
+  mode: "dark",
   colors: {
     background: "#1e1e2e", // Base - main content
     surface: "#181825", // Mantle - sidebar (darker than base)
@@ -44,6 +46,7 @@ export const catppuccinMochaTheme: Theme = {
 export const catppuccinLatteTheme: Theme = {
   id: "catppuccin-latte",
   name: "Catppuccin Latte",
+  mode: "light",
   colors: {
     background: "#eff1f5", // Base - main content
     surface: "#e6e9ef", // Mantle - sidebar (slightly muted)
@@ -60,11 +63,33 @@ export const catppuccinLatteTheme: Theme = {
   }
 }
 
+// Gruvbox Dark - Retro-styled theme with warm, earthy tones
+export const gruvboxDarkTheme: Theme = {
+  id: "gruvbox-dark",
+  name: "Gruvbox Dark",
+  mode: "dark",
+  colors: {
+    background: "#282828", // bg0 - main content
+    surface: "#1d2021", // bg0_h - sidebar (hard contrast)
+    surfaceElevated: "#3c3836", // bg1 - elevated elements
+    border: "#504945", // bg2 - borders
+    textPrimary: "#ebdbb2", // fg1 - primary text
+    textSecondary: "#928374", // gray - secondary text
+    accent: "#83a598", // blue - accent color
+    accentHover: "#76987c", // aqua-tinted hover
+    success: "#b8bb26", // green
+    warning: "#fabd2f", // yellow
+    error: "#fb4934", // red
+    avatarColors: ["#83a598", "#d3869b", "#fb4934", "#fe8019", "#b8bb26", "#8ec07c"]
+  }
+}
+
 // All available themes
 export const themes: Record<string, Theme> = {
   discord: discordTheme,
   "catppuccin-mocha": catppuccinMochaTheme,
-  "catppuccin-latte": catppuccinLatteTheme
+  "catppuccin-latte": catppuccinLatteTheme,
+  "gruvbox-dark": gruvboxDarkTheme
 }
 
 // Default theme ID

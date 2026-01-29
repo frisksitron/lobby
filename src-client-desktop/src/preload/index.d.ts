@@ -1,5 +1,5 @@
 import { ElectronAPI } from "@electron-toolkit/preload"
-import type { SecureTokens, AppSettings, ServerEntry } from "../shared/types"
+import type { SecureTokens, AppSettings, ServerEntry, ThemeMode } from "../shared/types"
 
 interface LobbyAPI {
   // Secure token storage (safeStorage) - per-server
@@ -25,6 +25,11 @@ interface LobbyAPI {
     getAll: () => Promise<ServerEntry[]>
     add: (server: ServerEntry) => Promise<{ success: boolean }>
     remove: (id: string) => Promise<{ success: boolean }>
+  }
+
+  // Theme (native window decorations)
+  theme: {
+    setNativeMode: (mode: ThemeMode) => Promise<void>
   }
 }
 

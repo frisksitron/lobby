@@ -26,6 +26,9 @@ function setTheme(themeId: string): void {
   for (const [key, cssVar] of Object.entries(COLOR_VAR_MAP)) {
     root.style.setProperty(cssVar, theme.colors[key as keyof typeof theme.colors] as string)
   }
+
+  // Update native window decorations to match theme
+  window.api.theme.setNativeMode(theme.mode)
 }
 
 function getTheme(): Theme {

@@ -1,6 +1,6 @@
 import { electronAPI } from "@electron-toolkit/preload"
 import { contextBridge, ipcRenderer } from "electron"
-import type { AppSettings, SecureTokens, ServerEntry } from "../shared/types"
+import type { AppSettings, SecureTokens, ServerEntry, ThemeMode } from "../shared/types"
 
 // Custom APIs for renderer
 const api = {
@@ -33,6 +33,11 @@ const api = {
       ipcRenderer.invoke("storage:servers:add", server),
     remove: (id: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke("storage:servers:remove", { id })
+  },
+
+  // Theme (native window decorations)
+  theme: {
+    setNativeMode: (mode: ThemeMode): Promise<void> => ipcRenderer.invoke("theme:set-native", mode)
   }
 }
 

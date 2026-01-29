@@ -117,8 +117,11 @@ export interface ThemeColors {
   avatarColors: string[]
 }
 
+export type ThemeMode = "light" | "dark"
+
 export interface Theme {
   id: string
   name: string
+  mode: ThemeMode
   colors: ThemeColors
 }
