@@ -13,9 +13,14 @@ asarUnpack:
   - resources/**
 win:
   executableName: Lobby
+  target: nsis
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 npmRebuild: false
+publish:
+  provider: github
+  owner: frisksitron
+  repo: lobby

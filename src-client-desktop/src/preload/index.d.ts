@@ -31,6 +31,29 @@ interface LobbyAPI {
   theme: {
     setNativeMode: (mode: ThemeMode) => Promise<void>
   }
+
+  // Auto-updater
+  updater: {
+    check: () => Promise<{ success: boolean; version?: string; error?: string }>
+    install: () => Promise<void>
+    onChecking: (callback: () => void) => () => void
+    onAvailable: (
+      callback: (info: { version: string; releaseNotes?: string }) => void
+    ) => () => void
+    onNotAvailable: (callback: () => void) => () => void
+    onProgress: (
+      callback: (progress: {
+        percent: number
+        bytesPerSecond: number
+        transferred: number
+        total: number
+      }) => void
+    ) => () => void
+    onDownloaded: (
+      callback: (info: { version: string; releaseNotes?: string }) => void
+    ) => () => void
+    onError: (callback: (error: string) => void) => () => void
+  }
 }
 
 declare global {

@@ -38,6 +38,55 @@ const api = {
   // Theme (native window decorations)
   theme: {
     setNativeMode: (mode: ThemeMode): Promise<void> => ipcRenderer.invoke("theme:set-native", mode)
+  },
+
+  // Auto-updater
+  updater: {
+    check: (): Promise<{ success: boolean; version?: string; error?: string }> =>
+      ipcRenderer.invoke("updater:check"),
+    install: (): Promise<void> => ipcRenderer.invoke("updater:install"),
+    onChecking: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on("updater:checking", handler)
+      return () => ipcRenderer.removeListener("updater:checking", handler)
+    },
+    onAvailable: (callback: (info: { version: string; releaseNotes?: string }) => void) => {
+      const handler = (_: unknown, info: { version: string; releaseNotes?: string }) =>
+        callback(info)
+      ipcRenderer.on("updater:available", handler)
+      return () => ipcRenderer.removeListener("updater:available", handler)
+    },
+    onNotAvailable: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on("updater:not-available", handler)
+      return () => ipcRenderer.removeListener("updater:not-available", handler)
+    },
+    onProgress: (
+      callback: (progress: {
+        percent: number
+        bytesPerSecond: number
+        transferred: number
+        total: number
+      }) => void
+    ) => {
+      const handler = (
+        _: unknown,
+        progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }
+      ) => callback(progress)
+      ipcRenderer.on("updater:progress", handler)
+      return () => ipcRenderer.removeListener("updater:progress", handler)
+    },
+    onDownloaded: (callback: (info: { version: string; releaseNotes?: string }) => void) => {
+      const handler = (_: unknown, info: { version: string; releaseNotes?: string }) =>
+        callback(info)
+      ipcRenderer.on("updater:downloaded", handler)
+      return () => ipcRenderer.removeListener("updater:downloaded", handler)
+    },
+    onError: (callback: (error: string) => void) => {
+      const handler = (_: unknown, error: string) => callback(error)
+      ipcRenderer.on("updater:error", handler)
+      return () => ipcRenderer.removeListener("updater:error", handler)
+    }
   }
 }
 

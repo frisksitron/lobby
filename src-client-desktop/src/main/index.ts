@@ -12,6 +12,10 @@ import {
   Tray
 } from "electron"
 import Store from "electron-store"
+import pkg from "electron-updater"
+
+const { autoUpdater } = pkg
+
 import icon from "../../resources/icon.png?asset"
 import { createLogger } from "./logger"
 
@@ -370,4 +374,74 @@ app.whenReady().then(() => {
   tray.on("click", () => {
     mainWindow?.show()
   })
+
+  // Auto-updater setup
+  autoUpdater.logger = {
+    info: (message) => log.info("[AutoUpdater]", message),
+    warn: (message) => log.warn("[AutoUpdater]", message),
+    error: (message) => log.error("[AutoUpdater]", message),
+    debug: (message) => log.debug("[AutoUpdater]", message)
+  }
+
+  autoUpdater.on("checking-for-update", () => {
+    log.info("Checking for updates...")
+    mainWindow?.webContents.send("updater:checking")
+  })
+
+  autoUpdater.on("update-available", (info) => {
+    log.info("Update available:", info.version)
+    mainWindow?.webContents.send("updater:available", {
+      version: info.version,
+      releaseNotes: info.releaseNotes
+    })
+  })
+
+  autoUpdater.on("update-not-available", () => {
+    log.info("No updates available")
+    mainWindow?.webContents.send("updater:not-available")
+  })
+
+  autoUpdater.on("download-progress", (progress) => {
+    mainWindow?.webContents.send("updater:progress", {
+      percent: progress.percent,
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total
+    })
+  })
+
+  autoUpdater.on("update-downloaded", (info) => {
+    log.info("Update downloaded:", info.version)
+    mainWindow?.webContents.send("updater:downloaded", {
+      version: info.version,
+      releaseNotes: info.releaseNotes
+    })
+  })
+
+  autoUpdater.on("error", (err) => {
+    log.error("Auto-updater error:", err)
+    mainWindow?.webContents.send("updater:error", err.message)
+  })
+
+  // IPC handlers for updater
+  ipcMain.handle("updater:check", async () => {
+    if (is.dev) {
+      return { success: false, error: "Updates not available in development mode" }
+    }
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      return { success: true, version: result?.updateInfo?.version }
+    } catch (error) {
+      log.error("Failed to check for updates:", error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle("updater:install", () => {
+    autoUpdater.quitAndInstall(false, true)
+  })
+
+  if (!is.dev) {
+    autoUpdater.checkForUpdatesAndNotify()
+  }
 })
