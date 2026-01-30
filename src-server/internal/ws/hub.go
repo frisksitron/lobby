@@ -42,6 +42,7 @@ type Hub struct {
 	messageRepo       *db.MessageRepository
 	sfu               *sfu.SFU
 	sfuCfg            *config.SFUConfig
+	screenShare       *sfu.ScreenShareManager
 	sequence          int64
 	mu                sync.RWMutex
 }
@@ -78,6 +79,12 @@ func NewHub(userRepo *db.UserRepository, messageRepo *db.MessageRepository, sfuC
 	h.sfu = sfuInstance
 	h.sfu.SetSignalingCallback(h.handleSfuSignaling)
 	log.Printf("[Hub] SFU initialized")
+
+	// Initialize screen share manager
+	h.screenShare = sfu.NewScreenShareManager(sfuInstance)
+	h.screenShare.SetUpdateCallback(h.handleScreenShareUpdate)
+	sfuInstance.SetScreenShareManager(h.screenShare)
+	log.Printf("[Hub] ScreenShare manager initialized")
 
 	return h, nil
 }
@@ -140,6 +147,11 @@ func (h *Hub) Run() {
 			}
 			h.mu.Unlock()
 
+			// Clean up screen share state
+			if h.screenShare != nil && userID != "" {
+				h.screenShare.OnUserDisconnect(userID)
+			}
+
 			if wasInVoice && h.sfu != nil {
 				h.sfu.RemovePeer(userID)
 			}
@@ -167,7 +179,6 @@ func (h *Hub) Run() {
 	}
 }
 
-// sendToClientLocked sends a message to a client, tracking dropped messages.
 // Caller must hold at least a read lock on h.mu.
 func (h *Hub) sendToClientLocked(client *Client, msg *WSMessage) {
 	select {
@@ -195,7 +206,6 @@ func (h *Hub) sendToClientLocked(client *Client, msg *WSMessage) {
 	}
 }
 
-// nextSequence returns the next sequence number (thread-safe)
 func (h *Hub) nextSequence() int64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -282,6 +292,12 @@ func (h *Hub) GetOnlineMembers() []MemberState {
 			deafened = voiceState.Deafened
 		}
 
+		// Check streaming state
+		streaming := false
+		if h.screenShare != nil {
+			streaming = h.screenShare.IsStreaming(client.user.ID)
+		}
+
 		members = append(members, MemberState{
 			ID:        client.user.ID,
 			Username:  client.user.Username,
@@ -290,6 +306,7 @@ func (h *Hub) GetOnlineMembers() []MemberState {
 			InVoice:   inVoice,
 			Muted:     muted,
 			Deafened:  deafened,
+			Streaming: streaming,
 			CreatedAt: client.user.CreatedAt,
 		})
 	}
@@ -309,7 +326,6 @@ func (h *Hub) IsUserOnline(userID string) bool {
 	return ok
 }
 
-// broadcastPresenceUpdate notifies all clients of a presence change
 // If except is not nil, that client won't receive the message
 func (h *Hub) broadcastPresenceUpdate(userID string, status string, except *Client) {
 	seq := h.nextSequence()
@@ -428,6 +444,11 @@ func (h *Hub) HandleRtcAnswer(userID string, sdp string) error {
 		h.handleSfuError(userID, err)
 		return err
 	}
+	// Notify screenshare manager that renegotiation is complete
+	// This triggers any pending keyframe requests
+	if h.screenShare != nil {
+		h.screenShare.OnRenegotiationComplete(userID)
+	}
 	return nil
 }
 
@@ -489,4 +510,36 @@ func (h *Hub) SendDispatchToUser(userID string, eventType string, payload interf
 
 func (h *Hub) Shutdown() {
 	close(h.shutdown)
+}
+
+// GetScreenShareManager returns the screen share manager
+func (h *Hub) GetScreenShareManager() *sfu.ScreenShareManager {
+	return h.screenShare
+}
+
+// handleScreenShareUpdate is called when a user's screen share state changes
+func (h *Hub) handleScreenShareUpdate(userID string, streaming bool) {
+	h.BroadcastDispatch(EventScreenShareUpdate, ScreenShareUpdatePayload{
+		UserID:    userID,
+		Streaming: streaming,
+	})
+}
+
+// HandleScreenShareReady is called when a client signals its video track is ready after replaceTrack().
+// This triggers server-initiated renegotiation to update SDP and fire OnTrack on the server.
+func (h *Hub) HandleScreenShareReady(userID string) {
+	if h.sfu == nil {
+		return
+	}
+
+	log.Printf("[Hub] Screen share ready from %s, triggering renegotiation", userID)
+	h.sfu.TriggerRenegotiation(userID)
+}
+
+// IsUserInVoice returns true if the user is currently in voice
+func (h *Hub) IsUserInVoice(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.voiceParticipants[userID]
+	return ok
 }

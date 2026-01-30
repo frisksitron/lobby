@@ -26,7 +26,8 @@ export enum WSEventType {
   VoiceSpeaking = "VOICE_SPEAKING",
   UserJoined = "USER_JOINED",
   UserLeft = "USER_LEFT",
-  Error = "ERROR"
+  Error = "ERROR",
+  ScreenShareUpdate = "SCREEN_SHARE_UPDATE"
 }
 
 // Command types (Client -> Server via DISPATCH)
@@ -41,7 +42,12 @@ export enum WSCommandType {
   RtcOffer = "RTC_OFFER",
   RtcAnswer = "RTC_ANSWER",
   RtcIceCandidate = "RTC_ICE_CANDIDATE",
-  VoiceStateSet = "VOICE_STATE_SET"
+  VoiceStateSet = "VOICE_STATE_SET",
+  ScreenShareStart = "SCREEN_SHARE_START",
+  ScreenShareStop = "SCREEN_SHARE_STOP",
+  ScreenShareSubscribe = "SCREEN_SHARE_SUBSCRIBE",
+  ScreenShareUnsubscribe = "SCREEN_SHARE_UNSUBSCRIBE",
+  ScreenShareReady = "SCREEN_SHARE_READY"
 }
 
 // Base WebSocket message
@@ -66,6 +72,7 @@ export interface MemberState {
   in_voice: boolean
   muted: boolean
   deafened: boolean
+  streaming: boolean
   created_at: string // ISO 8601
 }
 
@@ -212,6 +219,11 @@ export interface ErrorPayload {
   nonce?: string
 }
 
+export interface ScreenShareUpdatePayload {
+  user_id: string
+  streaming: boolean
+}
+
 // WebSocket connection states
 export type WSConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting"
 
@@ -237,6 +249,7 @@ export type WSClientEventType =
   | "server_unavailable"
   | "error"
   | "server_error"
+  | "screen_share_update"
 
 export interface WSClientEvents {
   connected: undefined
@@ -259,4 +272,5 @@ export interface WSClientEvents {
   server_unavailable: undefined
   error: Error
   server_error: ErrorPayload
+  screen_share_update: ScreenShareUpdatePayload
 }

@@ -23,38 +23,43 @@ const (
 
 // Event types (Server -> Client via DISPATCH)
 const (
-	EventPresenceUpdate   = "PRESENCE_UPDATE"
-	EventMessageCreate    = "MESSAGE_CREATE"
-	EventTypingStart      = "TYPING_START"
-	EventTypingStop       = "TYPING_STOP"
-	EventUserUpdate       = "USER_UPDATE"
-	EventVoiceStateUpdate = "VOICE_STATE_UPDATE"
-	EventRtcReady         = "RTC_READY"
-	EventRtcOffer         = "RTC_OFFER"
-	EventRtcAnswer        = "RTC_ANSWER"
-	EventRtcIceCandidate  = "RTC_ICE_CANDIDATE"
-	EventVoiceSpeaking    = "VOICE_SPEAKING"
-	EventUserJoined       = "USER_JOINED"
-	EventUserLeft         = "USER_LEFT"
-	EventError            = "ERROR"
+	EventPresenceUpdate    = "PRESENCE_UPDATE"
+	EventMessageCreate     = "MESSAGE_CREATE"
+	EventTypingStart       = "TYPING_START"
+	EventTypingStop        = "TYPING_STOP"
+	EventUserUpdate        = "USER_UPDATE"
+	EventVoiceStateUpdate  = "VOICE_STATE_UPDATE"
+	EventRtcReady          = "RTC_READY"
+	EventRtcOffer          = "RTC_OFFER"
+	EventRtcAnswer         = "RTC_ANSWER"
+	EventRtcIceCandidate   = "RTC_ICE_CANDIDATE"
+	EventVoiceSpeaking     = "VOICE_SPEAKING"
+	EventUserJoined        = "USER_JOINED"
+	EventUserLeft          = "USER_LEFT"
+	EventError             = "ERROR"
+	EventScreenShareUpdate = "SCREEN_SHARE_UPDATE"
 )
 
 // Command types (Client -> Server via DISPATCH)
 const (
-	CmdIdentify        = "IDENTIFY"
-	CmdResume          = "RESUME"
-	CmdPresenceSet     = "PRESENCE_SET"
-	CmdMessageSend     = "MESSAGE_SEND"
-	CmdTyping          = "TYPING"
-	CmdVoiceJoin       = "VOICE_JOIN"
-	CmdVoiceLeave      = "VOICE_LEAVE"
-	CmdRtcOffer        = "RTC_OFFER"
-	CmdRtcAnswer       = "RTC_ANSWER"
-	CmdRtcIceCandidate = "RTC_ICE_CANDIDATE"
-	CmdVoiceStateSet   = "VOICE_STATE_SET"
+	CmdIdentify              = "IDENTIFY"
+	CmdResume                = "RESUME"
+	CmdPresenceSet           = "PRESENCE_SET"
+	CmdMessageSend           = "MESSAGE_SEND"
+	CmdTyping                = "TYPING"
+	CmdVoiceJoin             = "VOICE_JOIN"
+	CmdVoiceLeave            = "VOICE_LEAVE"
+	CmdRtcOffer              = "RTC_OFFER"
+	CmdRtcAnswer             = "RTC_ANSWER"
+	CmdRtcIceCandidate       = "RTC_ICE_CANDIDATE"
+	CmdVoiceStateSet         = "VOICE_STATE_SET"
+	CmdScreenShareStart       = "SCREEN_SHARE_START"
+	CmdScreenShareStop        = "SCREEN_SHARE_STOP"
+	CmdScreenShareSubscribe   = "SCREEN_SHARE_SUBSCRIBE"
+	CmdScreenShareUnsubscribe = "SCREEN_SHARE_UNSUBSCRIBE"
+	CmdScreenShareReady       = "SCREEN_SHARE_READY"
 )
 
-// WSMessage is the base message structure
 type WSMessage struct {
 	Op   OpCode      `json:"op"`
 	Type string      `json:"t,omitempty"` // Event/command type (only for DISPATCH)
@@ -64,19 +69,16 @@ type WSMessage struct {
 
 // Server -> Client payloads
 
-// HelloPayload sent on initial connection
 type HelloPayload struct {
 	HeartbeatInterval int `json:"heartbeat_interval"` // Milliseconds
 }
 
-// ReadyPayload sent after successful identify
 type ReadyPayload struct {
 	SessionID string        `json:"session_id"`
 	User      *models.User  `json:"user"`
 	Members   []MemberState `json:"members"`
 }
 
-// MemberState represents a user's presence state
 type MemberState struct {
 	ID        string    `json:"id"`
 	Username  string    `json:"username"`
@@ -85,10 +87,10 @@ type MemberState struct {
 	InVoice   bool      `json:"in_voice"`
 	Muted     bool      `json:"muted"`
 	Deafened  bool      `json:"deafened"`
+	Streaming bool      `json:"streaming"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// ResumedPayload sent after successful resume
 type ResumedPayload struct{}
 
 // InvalidSessionPayload sent when session is invalid
@@ -110,32 +112,27 @@ type MessageCreatePayload struct {
 	Nonce     string         `json:"nonce,omitempty"` // Echo back for optimistic updates
 }
 
-// MessageAuthor is the author info embedded in MESSAGE_CREATE
 type MessageAuthor struct {
 	ID       string `json:"id"`
 	Username string `json:"username,omitempty"`
 	Avatar   string `json:"avatar_url,omitempty"`
 }
 
-// PresenceUpdatePayload sent when a user's presence changes (via DISPATCH)
 type PresenceUpdatePayload struct {
 	UserID string `json:"user_id"`
 	Status string `json:"status"`
 }
 
-// TypingStartPayload sent when a user starts typing (via DISPATCH)
 type TypingStartPayload struct {
 	UserID    string `json:"user_id"`
 	Username  string `json:"username"`
 	Timestamp string `json:"timestamp"`
 }
 
-// TypingStopPayload sent when a user stops typing (via DISPATCH)
 type TypingStopPayload struct {
 	UserID string `json:"user_id"`
 }
 
-// UserUpdatePayload sent when a user's profile changes (via DISPATCH)
 type UserUpdatePayload struct {
 	ID       string `json:"id"`
 	Username string `json:"username,omitempty"`
@@ -247,4 +244,15 @@ type ErrorPayload struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Nonce   string `json:"nonce,omitempty"`
+}
+
+// ScreenShareUpdatePayload sent when a user's screen share state changes
+type ScreenShareUpdatePayload struct {
+	UserID    string `json:"user_id"`
+	Streaming bool   `json:"streaming"`
+}
+
+// ScreenShareSubscribePayload sent by client to subscribe to a stream
+type ScreenShareSubscribePayload struct {
+	StreamerID string `json:"streamer_id"`
 }

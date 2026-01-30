@@ -8,6 +8,8 @@ import { closeSharedAudioContext, getSharedAudioContext } from "./audio-context"
 import {
   AUDIO_BITRATE_BPS,
   AUDIO_CHANNELS,
+  AUDIO_NETWORK_PRIORITY,
+  AUDIO_PRIORITY,
   AUDIO_SAMPLE_RATE,
   BUNDLE_POLICY,
   ICE_RESTART_DELAY_MS,
@@ -16,6 +18,7 @@ import {
   RTCP_MUX_POLICY
 } from "./constants"
 import { type AudioPipeline, createAudioPipeline } from "./noise-suppressor"
+import { screenShareManager } from "./screenshare"
 import { createVAD, type SpeakingCallback } from "./vad"
 
 const log = createLogger("WebRTC")
@@ -70,7 +73,12 @@ class WebRTCManager {
   private iceRestartTimeout: ReturnType<typeof setTimeout> | null = null
   // Perfect negotiation: client is always polite (yields to server offers)
   private makingOffer = false
+  // Track pending negotiation requests (for deferred negotiation when not in stable state)
+  private needsNegotiation = false
   private muted = false
+  // Promise that resolves when audio stream is ready
+  private audioReadyPromise: Promise<void> | null = null
+  private audioReadyResolve: (() => void) | null = null
 
   /**
    * Start WebRTC connection with voice chat
@@ -84,8 +92,23 @@ class WebRTCManager {
     log.info("Starting...")
     this.state = "connecting"
     this.iceServers = iceServers
+
+    // Create promise that resolves when audio stream is ready
+    this.audioReadyPromise = new Promise((resolve) => {
+      this.audioReadyResolve = resolve
+    })
+
+    // Create peer connection first so it's ready to receive the server's initial offer
+    // Server always initiates offers to ensure it's the ICE controlling agent
+    await getWarmupPromise()
+    this.createPeerConnection()
     this.setupSignalingListeners()
 
+    // Start timeout waiting for server's initial offer
+    log.info("Waiting for server's initial offer...")
+    this.startOfferTimeout()
+
+    // Get audio stream in parallel - will be added when we receive the offer
     try {
       const { settings } = useSettings()
       const inputDeviceId = settings().inputDevice
@@ -124,30 +147,20 @@ class WebRTCManager {
 
       this.processedStream = this.audioPipeline.getOutputStream()
       this.setupVAD(audioContext)
+
+      // Signal that audio is ready
+      if (this.audioReadyResolve) {
+        this.audioReadyResolve()
+      }
     } catch (err) {
       log.error("Failed to get user media:", err)
       this.state = "failed"
+      // Signal failure so handleOffer doesn't wait forever
+      if (this.audioReadyResolve) {
+        this.audioReadyResolve()
+      }
       throw err
     }
-
-    // Wait for warmup to complete before creating peer connection
-    await getWarmupPromise()
-    this.createPeerConnection()
-
-    const streamToSend = this.processedStream || this.localStream
-    if (streamToSend && this.peerConnection) {
-      for (const track of streamToSend.getAudioTracks()) {
-        const sender = this.peerConnection.addTrack(track, streamToSend)
-        const params = sender.getParameters()
-        if (!params.encodings || params.encodings.length === 0) {
-          params.encodings = [{}]
-        }
-        params.encodings[0].maxBitrate = AUDIO_BITRATE_BPS
-        await sender.setParameters(params)
-      }
-    }
-
-    await this.createAndSendOffer()
   }
 
   /**
@@ -156,9 +169,15 @@ class WebRTCManager {
   stop(): void {
     log.info("Stopping...")
 
+    // Clean up screen share first
+    screenShareManager.onVoiceStopped()
+
     this.clearAnswerTimeout()
     this.clearIceRestartTimeout()
     this.makingOffer = false
+    this.needsNegotiation = false
+    this.audioReadyPromise = null
+    this.audioReadyResolve = null
 
     this.stopVAD()
     this.audioPipeline?.destroy()
@@ -255,6 +274,43 @@ class WebRTCManager {
       iceCandidatePoolSize: 0 // Don't pre-gather - warmup handles WebRTC init
     })
 
+    // Share peer connection with screen share manager
+    screenShareManager.setPeerConnection(this.peerConnection)
+
+    // Handle renegotiation needed (when video tracks are added/removed)
+    // Client creates offers when adding tracks - this is the standard WebRTC pattern
+    this.peerConnection.onnegotiationneeded = async () => {
+      log.info("[DEBUG] onnegotiationneeded fired")
+      log.info(`[DEBUG] signalingState: ${this.peerConnection?.signalingState}`)
+      log.info(`[DEBUG] connectionState: ${this.peerConnection?.connectionState}`)
+      log.info(`[DEBUG] needsNegotiation flag: ${this.needsNegotiation}`)
+      log.info(`[DEBUG] makingOffer flag: ${this.makingOffer}`)
+      log.info(`[DEBUG] webrtc state: ${this.state}`)
+
+      // Only skip if peer connection is gone
+      if (!this.peerConnection) {
+        log.info("[DEBUG] Skipping negotiation - no peer connection")
+        return
+      }
+
+      // Skip if completely disconnected or failed
+      // Allow negotiation in "connecting" state - signaling works before ICE completes
+      if (this.state === "disconnected" || this.state === "failed") {
+        log.info("[DEBUG] Skipping negotiation - not in active state")
+        return
+      }
+
+      if (this.peerConnection.signalingState !== "stable") {
+        // Defer negotiation until signaling is stable
+        log.info("[DEBUG] Deferring negotiation - not in stable state")
+        this.needsNegotiation = true
+        return
+      }
+
+      log.info("[DEBUG] About to call doNegotiation()")
+      await this.doNegotiation()
+    }
+
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
         log.info("Sending ICE candidate")
@@ -298,47 +354,83 @@ class WebRTCManager {
           const userId = event.streams[0].id
           audioManager.addStream(userId, event.streams[0])
         }
+      } else if (event.track.kind === "video") {
+        // Video tracks are handled by screen share manager
+        // The stream ID contains the streamer's user ID (set by server in track's msid)
+        const streamerId = event.streams[0]?.id
+        if (streamerId) {
+          screenShareManager.handleRemoteVideoTrack(event.track, streamerId)
+        } else {
+          log.warn("Received video track without stream association")
+        }
       }
     }
   }
 
-  private async createAndSendOffer(): Promise<void> {
-    if (!this.peerConnection) return
+  /**
+   * Perform the actual negotiation (create and send offer)
+   */
+  private async doNegotiation(): Promise<void> {
+    log.info("[DEBUG] doNegotiation() called")
+    log.info(`[DEBUG] signalingState: ${this.peerConnection?.signalingState}`)
 
-    log.info("Creating offer")
+    if (!this.peerConnection || this.peerConnection.signalingState !== "stable") {
+      log.info(
+        `[DEBUG] doNegotiation bailing - pc=${!!this.peerConnection}, state=${this.peerConnection?.signalingState}`
+      )
+      return
+    }
+
+    this.needsNegotiation = false
     this.makingOffer = true
-
     try {
-      // Create transceiver and set codec preferences
-      const transceiver = this.peerConnection.addTransceiver("audio", { direction: "sendrecv" })
-
-      // Prioritize Opus codec
-      const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs
-      if (codecs) {
-        const opus = codecs.filter((c) => c.mimeType === "audio/opus")
-        const others = codecs.filter((c) => c.mimeType !== "audio/opus")
-        transceiver.setCodecPreferences([...opus, ...others])
-      }
-
+      log.info("[DEBUG] Creating offer...")
       const offer = await this.peerConnection.createOffer()
+      log.info(`[DEBUG] Created offer, SDP length: ${offer.sdp?.length}`)
+      log.info(`[DEBUG] Offer has video m-line: ${offer.sdp?.includes("m=video")}`)
+      log.info(`[DEBUG] Offer has audio m-line: ${offer.sdp?.includes("m=audio")}`)
+
       await this.peerConnection.setLocalDescription(offer)
+      log.info("[DEBUG] Set local description (offer)")
 
-      log.info("Sending offer")
       wsManager.sendRtcOffer(offer.sdp || "")
-
-      this.startAnswerTimeout()
+      log.info("[DEBUG] Offer sent via WebSocket")
+      log.info("Sent renegotiation offer")
+    } catch (err) {
+      log.error("[DEBUG] Failed to create/send offer:", err)
+      log.error("Failed to create/send offer:", err)
     } finally {
       this.makingOffer = false
     }
   }
 
-  private startAnswerTimeout(): void {
+  /**
+   * Check if there's a pending negotiation request and process it if signaling is stable
+   */
+  private checkPendingNegotiation(): void {
+    if (this.needsNegotiation && this.peerConnection?.signalingState === "stable") {
+      log.info("Processing deferred negotiation")
+      this.doNegotiation()
+    }
+  }
+
+  private startOfferTimeout(): void {
     this.clearAnswerTimeout()
     this.answerTimeout = setTimeout(() => {
       if (this.state === "connecting") {
-        log.error("Answer timeout - no response from server within", ANSWER_TIMEOUT_MS, "ms")
+        log.error("Offer timeout - no initial offer from server within", ANSWER_TIMEOUT_MS, "ms")
         this.stop()
         this.state = "failed"
+      }
+    }, ANSWER_TIMEOUT_MS)
+  }
+
+  private startAnswerTimeout(): void {
+    this.clearAnswerTimeout()
+    this.answerTimeout = setTimeout(() => {
+      if (this.state === "connected") {
+        log.error("Answer timeout - no response from server within", ANSWER_TIMEOUT_MS, "ms")
+        // For ICE restart, just log - don't stop the connection
       }
     }, ANSWER_TIMEOUT_MS)
   }
@@ -412,17 +504,47 @@ class WebRTCManager {
   }
 
   private async handleAnswer(sdp: string): Promise<void> {
-    if (!this.peerConnection) return
+    log.info(`[DEBUG] handleAnswer called, SDP length: ${sdp.length}`)
+    log.info(`[DEBUG] Answer has video m-line: ${sdp.includes("m=video")}`)
+    log.info(`[DEBUG] Answer has audio m-line: ${sdp.includes("m=audio")}`)
+
+    if (!this.peerConnection) {
+      log.info("[DEBUG] handleAnswer - no peer connection!")
+      return
+    }
+
+    log.info(
+      `[DEBUG] Current signaling state before setRemoteDescription: ${this.peerConnection.signalingState}`
+    )
 
     this.clearAnswerTimeout()
 
     const answer = new RTCSessionDescription({ type: "answer", sdp })
     await this.peerConnection.setRemoteDescription(answer)
+    log.info("[DEBUG] Set remote description (answer) succeeded")
+    log.info(
+      `[DEBUG] Signaling state after setRemoteDescription: ${this.peerConnection.signalingState}`
+    )
     log.info("Set remote description (answer)")
+
+    // Check if there's a pending negotiation request
+    this.checkPendingNegotiation()
   }
 
   private async handleOffer(sdp: string): Promise<void> {
-    if (!this.peerConnection) return
+    log.info(`[DEBUG] handleOffer called, SDP length: ${sdp.length}`)
+    log.info(`[DEBUG] Offer has video m-line: ${sdp.includes("m=video")}`)
+    log.info(`[DEBUG] Offer has audio m-line: ${sdp.includes("m=audio")}`)
+
+    if (!this.peerConnection) {
+      log.info("[DEBUG] handleOffer - no peer connection!")
+      return
+    }
+
+    const isInitialOffer = this.state === "connecting"
+    log.info(`[DEBUG] isInitialOffer: ${isInitialOffer}`)
+    log.info(`[DEBUG] Current signaling state: ${this.peerConnection.signalingState}`)
+    log.info(`[DEBUG] makingOffer: ${this.makingOffer}`)
 
     // Perfect negotiation: client is the "polite" peer
     // Check for offer collision: we're making an offer while receiving one
@@ -430,18 +552,50 @@ class WebRTCManager {
 
     // As the polite peer, we always accept incoming offers (rollback if needed)
     if (offerCollision) {
-      log.info("Offer collision detected - rolling back local offer (polite peer)")
+      log.info("[DEBUG] Offer collision detected - rolling back local offer (polite peer)")
     }
 
     const offer = new RTCSessionDescription({ type: "offer", sdp })
     await this.peerConnection.setRemoteDescription(offer)
+    log.info("[DEBUG] Set remote description (offer) succeeded")
+
+    // For initial offer, wait for audio stream then add our track before creating the answer
+    if (isInitialOffer && this.audioReadyPromise) {
+      log.info("Waiting for audio stream to be ready...")
+      await this.audioReadyPromise
+
+      const streamToSend = this.processedStream || this.localStream
+      if (streamToSend && this.peerConnection) {
+        for (const track of streamToSend.getAudioTracks()) {
+          this.peerConnection.addTrack(track, streamToSend)
+        }
+        log.info("Added audio track to peer connection")
+      }
+    }
 
     const answer = await this.peerConnection.createAnswer()
     await this.peerConnection.setLocalDescription(answer)
 
-    log.info("Sending answer (renegotiation)")
+    // Apply audio parameters AFTER negotiation completes (encodings are now available)
+    if (isInitialOffer && this.peerConnection) {
+      await this.applyAudioSenderParameters()
+      // Initialize video sender from server's transceiver so screen share can use replaceTrack()
+      // instead of addTrack(), avoiding client-initiated renegotiation and DTLS role conflicts
+      screenShareManager.initializeVideoSender()
+    }
+
+    log.info(isInitialOffer ? "Sending answer (initial)" : "Sending answer (renegotiation)")
     if (!answer.sdp) throw new Error("Answer SDP is empty")
     wsManager.sendRtcAnswer(answer.sdp)
+
+    // Clear timeout for initial connection
+    if (isInitialOffer) {
+      this.clearAnswerTimeout()
+    }
+
+    // Check if there's a pending negotiation request (e.g., screen share was initiated
+    // while we were handling this server offer)
+    this.checkPendingNegotiation()
   }
 
   private async handleIceCandidate(payload: RtcIceCandidatePayload): Promise<void> {
@@ -472,6 +626,35 @@ class WebRTCManager {
 
   private stopVAD(): void {
     this.vad.stop()
+  }
+
+  /**
+   * Apply bitrate and priority settings to the audio sender
+   * Must be called AFTER negotiation completes (setLocalDescription)
+   */
+  private async applyAudioSenderParameters(): Promise<void> {
+    if (!this.peerConnection) return
+
+    const sender = this.peerConnection.getSenders().find((s) => s.track?.kind === "audio")
+    if (!sender) {
+      log.warn("No audio sender found")
+      return
+    }
+
+    try {
+      const params = sender.getParameters()
+      if (!params.encodings || params.encodings.length === 0) {
+        log.warn("No encodings available on audio sender")
+        return
+      }
+      params.encodings[0].maxBitrate = AUDIO_BITRATE_BPS
+      params.encodings[0].priority = AUDIO_PRIORITY
+      params.encodings[0].networkPriority = AUDIO_NETWORK_PRIORITY
+      await sender.setParameters(params)
+      log.info("Applied audio parameters: maxBitrate=128kbps, priority=high")
+    } catch (err) {
+      log.warn("Could not set audio parameters:", err)
+    }
   }
 
   /**
@@ -548,6 +731,9 @@ class WebRTCManager {
         if (sender) {
           await sender.replaceTrack(newTrack)
           log.info("Replaced audio track on sender")
+
+          // Re-apply audio parameters after track replacement
+          await this.applyAudioSenderParameters()
 
           // Restore mute state on new track
           if (this.muted) {

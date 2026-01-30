@@ -6,23 +6,80 @@ import MessageInput from "./components/MessageInput/MessageInput"
 import TypingIndicator from "./components/MessageInput/TypingIndicator"
 import ServerSettingsModal from "./components/modals/ServerSettingsModal"
 import SettingsModal from "./components/modals/SettingsModal"
+import { ScreenPicker } from "./components/ScreenPicker"
 import Sidebar from "./components/Sidebar/Sidebar"
+import { StreamViewer } from "./components/StreamViewer"
 import ConfirmDialog from "./components/shared/ConfirmDialog"
-import { useConnection, useServers } from "./stores/core"
+import { useConnection, useScreenShare, useServers, useUsers } from "./stores/core"
 import { useSettings } from "./stores/settings"
 import { useTheme } from "./stores/theme"
 import { useUI } from "./stores/ui"
 
-const MainUI: Component = () => (
-  <>
-    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <MessageFeed />
-      <TypingIndicator />
-      <MessageInput />
-    </main>
-    <Sidebar />
-  </>
-)
+const MainUI: Component = () => {
+  const {
+    remoteStream,
+    viewingStreamerId,
+    localStream,
+    isLocallySharing,
+    unsubscribeFromStream,
+    stopScreenShare,
+    subscribeToStream
+  } = useScreenShare()
+  const { currentUser } = useConnection()
+  const { getActiveStreamers } = useUsers()
+
+  // Only show viewer when streaming OR actively viewing someone
+  const shouldShowViewer = () => isLocallySharing() || viewingStreamerId() !== null
+
+  // Viewing takes priority when set, otherwise show own stream if sharing
+  const computedStream = () => {
+    if (viewingStreamerId()) return remoteStream()
+    if (isLocallySharing()) return localStream()
+    return null
+  }
+
+  const computedStreamerId = () => {
+    if (viewingStreamerId()) return viewingStreamerId()
+    if (isLocallySharing()) return currentUser()?.id ?? null
+    return null
+  }
+
+  const isOwnStream = () => isLocallySharing() && !viewingStreamerId()
+
+  const handleClose = () => {
+    if (isOwnStream()) {
+      stopScreenShare()
+    } else {
+      unsubscribeFromStream()
+    }
+  }
+
+  const handleSwitchStream = (streamerId: string) => subscribeToStream(streamerId)
+  const handleViewOwnStream = () => unsubscribeFromStream()
+
+  return (
+    <>
+      <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <Show when={shouldShowViewer()}>
+          <StreamViewer
+            stream={computedStream()}
+            streamerId={computedStreamerId()}
+            isOwnStream={isOwnStream()}
+            onClose={handleClose}
+            availableStreamers={getActiveStreamers()}
+            isLocallySharing={isLocallySharing()}
+            onSwitchStream={handleSwitchStream}
+            onViewOwnStream={handleViewOwnStream}
+          />
+        </Show>
+        <MessageFeed />
+        <TypingIndicator />
+        <MessageInput />
+      </main>
+      <Sidebar />
+    </>
+  )
+}
 
 const AppContent: Component = () => {
   const {
@@ -37,6 +94,7 @@ const AppContent: Component = () => {
   const { activeServerId } = useServers()
   const { loadTheme } = useTheme()
   const { loadSettings } = useSettings()
+  const { isPickerOpen, closeScreenPicker, startScreenShare } = useScreenShare()
 
   const showAuth = () => connection.needsAuth() || connection.connectionState() === "disconnected"
 
@@ -88,6 +146,12 @@ const AppContent: Component = () => {
           />
         )}
       </Show>
+
+      <ScreenPicker
+        isOpen={isPickerOpen()}
+        onClose={closeScreenPicker}
+        onSelect={startScreenShare}
+      />
     </div>
   )
 }

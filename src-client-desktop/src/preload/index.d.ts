@@ -32,6 +32,11 @@ interface LobbyAPI {
     setNativeMode: (mode: ThemeMode) => Promise<void>
   }
 
+  // Screen capture for screen sharing
+  screen: {
+    getSources: () => Promise<{ id: string; name: string; thumbnail: string }[]>
+  }
+
   // Auto-updater
   updater: {
     check: () => Promise<{ success: boolean; version?: string; error?: string }>

@@ -54,7 +54,12 @@ const VoiceStatsPanel: Component<VoiceStatsPanelProps> = (props) => {
     if (!props.anchorRect) return {}
 
     const left = props.anchorRect.left - 220 - 16
-    const top = Math.max(8, Math.min(props.anchorRect.top - 100, window.innerHeight - 250))
+    // Reserve more height when video stats are shown
+    const reservedHeight = hasVideoStats() ? 350 : 250
+    const top = Math.max(
+      8,
+      Math.min(props.anchorRect.top - 100, window.innerHeight - reservedHeight)
+    )
 
     return {
       position: "fixed" as const,
@@ -92,6 +97,19 @@ const VoiceStatsPanel: Component<VoiceStatsPanelProps> = (props) => {
     return s.codec
   }
 
+  const formatVideoBitrate = (kbps: number | null): string => {
+    if (kbps === null) return "-"
+    if (kbps >= 1000) {
+      return `${(kbps / 1000).toFixed(2)} Mbps`
+    }
+    return `${kbps.toFixed(0)} kbps`
+  }
+
+  const hasVideoStats = () => {
+    const s = stats()
+    return s && (s.videoBitrateIn !== null || s.videoBitrateOut !== null)
+  }
+
   return (
     <Show when={props.isOpen}>
       <Portal>
@@ -102,7 +120,7 @@ const VoiceStatsPanel: Component<VoiceStatsPanelProps> = (props) => {
             onClick={(e) => e.stopPropagation()}
           >
             <div class="bg-surface-elevated px-3 py-2 border-b border-border">
-              <h3 class="text-sm font-semibold text-text-primary">Voice Stats</h3>
+              <h3 class="text-sm font-semibold text-text-primary">Stats for nerds</h3>
             </div>
 
             <div class="p-3 space-y-2 text-xs">
@@ -140,6 +158,33 @@ const VoiceStatsPanel: Component<VoiceStatsPanelProps> = (props) => {
                   {formatPacketLoss(stats()?.packetLossPercent ?? null)}
                 </span>
               </div>
+
+              <Show when={hasVideoStats()}>
+                <div class="border-t border-border pt-2 mt-2 space-y-2">
+                  <Show when={stats()?.videoCodec}>
+                    <div class="flex justify-between">
+                      <span class="text-text-secondary">Video Codec</span>
+                      <span class="text-text-primary font-mono">{stats()?.videoCodec}</span>
+                    </div>
+                  </Show>
+                  <Show when={stats()?.videoBitrateIn !== null}>
+                    <div class="flex justify-between">
+                      <span class="text-text-secondary">Video In</span>
+                      <span class="text-text-primary font-mono">
+                        {formatVideoBitrate(stats()?.videoBitrateIn ?? null)}
+                      </span>
+                    </div>
+                  </Show>
+                  <Show when={stats()?.videoBitrateOut !== null}>
+                    <div class="flex justify-between">
+                      <span class="text-text-secondary">Video Out</span>
+                      <span class="text-text-primary font-mono">
+                        {formatVideoBitrate(stats()?.videoBitrateOut ?? null)}
+                      </span>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
             </div>
           </div>
         </div>

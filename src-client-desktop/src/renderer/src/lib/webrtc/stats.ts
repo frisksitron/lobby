@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js"
 
 export interface VoiceStats {
+  // Audio stats
   codec: string | null
   clockRate: number | null
   bitrateIn: number | null
@@ -11,6 +12,10 @@ export interface VoiceStats {
   packetsSent: number
   packetsReceived: number
   packetsLost: number
+  // Video stats (screenshare)
+  videoBitrateIn: number | null
+  videoBitrateOut: number | null
+  videoCodec: string | null
 }
 
 const [stats, setStats] = createSignal<VoiceStats | null>(null)
@@ -19,6 +24,8 @@ const [isCollecting, setIsCollecting] = createSignal(false)
 let intervalId: ReturnType<typeof setInterval> | null = null
 let prevBytesReceived = 0
 let prevBytesSent = 0
+let prevVideoBytesReceived = 0
+let prevVideoBytesSent = 0
 let prevTimestamp = 0
 
 function createEmptyStats(): VoiceStats {
@@ -32,7 +39,10 @@ function createEmptyStats(): VoiceStats {
     packetLossPercent: null,
     packetsSent: 0,
     packetsReceived: 0,
-    packetsLost: 0
+    packetsLost: 0,
+    videoBitrateIn: null,
+    videoBitrateOut: null,
+    videoCodec: null
   }
 }
 
@@ -42,9 +52,14 @@ async function collectStats(pc: RTCPeerConnection): Promise<void> {
 
   let bytesReceived = 0
   let bytesSent = 0
+  let videoBytesReceived = 0
+  let videoBytesSent = 0
+  let hasVideoInbound = false
+  let hasVideoOutbound = false
   const now = performance.now()
 
   report.forEach((stat) => {
+    // Audio stats
     if (stat.type === "inbound-rtp" && stat.kind === "audio") {
       newStats.jitter = stat.jitter !== undefined ? stat.jitter * 1000 : null
       newStats.packetsReceived = stat.packetsReceived ?? 0
@@ -62,15 +77,32 @@ async function collectStats(pc: RTCPeerConnection): Promise<void> {
       bytesSent = stat.bytesSent ?? 0
     }
 
+    // Video stats (screenshare)
+    if (stat.type === "inbound-rtp" && stat.kind === "video") {
+      hasVideoInbound = true
+      videoBytesReceived = stat.bytesReceived ?? 0
+    }
+
+    if (stat.type === "outbound-rtp" && stat.kind === "video") {
+      hasVideoOutbound = true
+      videoBytesSent = stat.bytesSent ?? 0
+    }
+
     if (stat.type === "candidate-pair" && stat.state === "succeeded") {
       newStats.rtt =
         stat.currentRoundTripTime !== undefined ? stat.currentRoundTripTime * 1000 : null
     }
 
+    // Codec detection
     if (stat.type === "codec" && stat.mimeType?.startsWith("audio/")) {
       const codecName = stat.mimeType.replace("audio/", "")
       newStats.codec = codecName.charAt(0).toUpperCase() + codecName.slice(1)
       newStats.clockRate = stat.clockRate ?? null
+    }
+
+    if (stat.type === "codec" && stat.mimeType?.startsWith("video/")) {
+      const codecName = stat.mimeType.replace("video/", "")
+      newStats.videoCodec = codecName.toUpperCase()
     }
   })
 
@@ -78,16 +110,28 @@ async function collectStats(pc: RTCPeerConnection): Promise<void> {
   if (prevTimestamp > 0) {
     const timeDelta = (now - prevTimestamp) / 1000
     if (timeDelta > 0) {
+      // Audio bitrates
       const bytesReceivedDelta = bytesReceived - prevBytesReceived
       const bytesSentDelta = bytesSent - prevBytesSent
-
       newStats.bitrateIn = bytesReceivedDelta > 0 ? (bytesReceivedDelta * 8) / timeDelta / 1000 : 0
       newStats.bitrateOut = bytesSentDelta > 0 ? (bytesSentDelta * 8) / timeDelta / 1000 : 0
+
+      // Video bitrates - use 0 when active but no delta, null when not active
+      const videoBytesReceivedDelta = videoBytesReceived - prevVideoBytesReceived
+      const videoBytesSentDelta = videoBytesSent - prevVideoBytesSent
+      newStats.videoBitrateIn = hasVideoInbound
+        ? (videoBytesReceivedDelta * 8) / timeDelta / 1000
+        : null
+      newStats.videoBitrateOut = hasVideoOutbound
+        ? (videoBytesSentDelta * 8) / timeDelta / 1000
+        : null
     }
   }
 
   prevBytesReceived = bytesReceived
   prevBytesSent = bytesSent
+  prevVideoBytesReceived = videoBytesReceived
+  prevVideoBytesSent = videoBytesSent
   prevTimestamp = now
 
   setStats(newStats)
@@ -99,6 +143,8 @@ export function startStatsCollection(pc: RTCPeerConnection): void {
   // Reset state
   prevBytesReceived = 0
   prevBytesSent = 0
+  prevVideoBytesReceived = 0
+  prevVideoBytesSent = 0
   prevTimestamp = 0
   setStats(createEmptyStats())
   setIsCollecting(true)
@@ -121,6 +167,8 @@ export function stopStatsCollection(): void {
   setStats(null)
   prevBytesReceived = 0
   prevBytesSent = 0
+  prevVideoBytesReceived = 0
+  prevVideoBytesSent = 0
   prevTimestamp = 0
 }
 

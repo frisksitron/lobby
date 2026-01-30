@@ -34,8 +34,8 @@ const (
 	// Send pings to peer with this period. Must be less than pongWait
 	pingPeriod = (pongWait * 9) / 10
 
-	// Maximum message size allowed from peer
-	maxMessageSize = 4096
+	// Maximum message size allowed from peer (increased for video SDP)
+	maxMessageSize = 65536
 
 	// Heartbeat interval sent to clients (in ms)
 	heartbeatInterval = 30000
@@ -225,6 +225,16 @@ func (c *Client) handleDispatch(msg *WSMessage) {
 		c.handleRtcIceCandidate(msg)
 	case CmdVoiceStateSet:
 		c.handleVoiceStateSet(msg)
+	case CmdScreenShareStart:
+		c.handleScreenShareStart()
+	case CmdScreenShareStop:
+		c.handleScreenShareStop()
+	case CmdScreenShareSubscribe:
+		c.handleScreenShareSubscribe(msg)
+	case CmdScreenShareUnsubscribe:
+		c.handleScreenShareUnsubscribe()
+	case CmdScreenShareReady:
+		c.handleScreenShareReady()
 	default:
 		log.Printf("Unknown dispatch type: %s", msg.Type)
 	}
@@ -562,10 +572,19 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 		}
 	}
 
+	// Send RTC_READY first so client can set up signaling listeners
 	c.hub.SendDispatchToUser(c.user.ID, EventRtcReady, RtcReadyPayload{
 		Participants: participants,
 		ICEServers:   iceServers,
 	})
+
+	// Then send initial offer - client's listeners are now ready
+	// Server initiates offers to ensure it's always the ICE controlling agent
+	if sfuInst != nil {
+		if err := sfuInst.SendInitialOffer(c.user.ID); err != nil {
+			log.Printf("Error sending initial offer to %s: %v", c.user.ID, err)
+		}
+	}
 
 	c.hub.BroadcastDispatch(EventVoiceStateUpdate, VoiceStateUpdatePayload{
 		UserID:   c.user.ID,
@@ -584,6 +603,13 @@ func (c *Client) handleVoiceLeave() {
 
 	if c.hub.GetUserVoiceState(c.user.ID) == nil {
 		return
+	}
+
+	// Stop screen share if active
+	sm := c.hub.GetScreenShareManager()
+	if sm != nil {
+		sm.StopShare(c.user.ID)
+		sm.Unsubscribe(c.user.ID)
 	}
 
 	c.hub.RemoveUserFromVoice(c.user.ID)
@@ -623,6 +649,11 @@ func (c *Client) handleRtcOffer(msg *WSMessage) {
 	answerSDP, err := c.hub.HandleRtcOffer(c.user.ID, sdp)
 	if err != nil {
 		log.Printf("Error handling RTC offer from %s: %v", c.user.ID, err)
+		return
+	}
+
+	// Empty answer means offer was ignored (e.g., offer collision - server is impolite peer)
+	if answerSDP == "" {
 		return
 	}
 
@@ -781,4 +812,97 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 			Deafened: newState.Deafened,
 		})
 	}
+}
+
+func (c *Client) handleScreenShareStart() {
+	if !c.IsIdentified() {
+		return
+	}
+
+	// User must be in voice to screen share
+	if c.hub.GetUserVoiceState(c.user.ID) == nil {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    "NOT_IN_VOICE",
+				Message: "Must be in voice to screen share",
+			},
+		}
+		return
+	}
+
+	sm := c.hub.GetScreenShareManager()
+	if sm == nil {
+		return
+	}
+
+	// Register as pending - client will send offer with video track
+	sm.StartShare(c.user.ID)
+	log.Printf("User %s requested screen share, waiting for client offer", c.user.ID)
+}
+
+func (c *Client) handleScreenShareStop() {
+	if !c.IsIdentified() {
+		return
+	}
+
+	sm := c.hub.GetScreenShareManager()
+	if sm == nil {
+		return
+	}
+
+	sm.StopShare(c.user.ID)
+	log.Printf("User %s stopped screen share", c.user.ID)
+}
+
+func (c *Client) handleScreenShareSubscribe(msg *WSMessage) {
+	if !c.IsIdentified() {
+		return
+	}
+
+	data, ok := msg.Data.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	streamerID, ok := data["streamer_id"].(string)
+	if !ok || streamerID == "" {
+		return
+	}
+
+	sm := c.hub.GetScreenShareManager()
+	if sm == nil {
+		return
+	}
+
+	if err := sm.Subscribe(c.user.ID, streamerID); err != nil {
+		log.Printf("Error subscribing to screen share: %v", err)
+	}
+}
+
+func (c *Client) handleScreenShareUnsubscribe() {
+	if !c.IsIdentified() {
+		return
+	}
+
+	sm := c.hub.GetScreenShareManager()
+	if sm == nil {
+		return
+	}
+
+	sm.Unsubscribe(c.user.ID)
+}
+
+func (c *Client) handleScreenShareReady() {
+	if !c.IsIdentified() {
+		return
+	}
+
+	// User must be in voice
+	if c.hub.GetUserVoiceState(c.user.ID) == nil {
+		return
+	}
+
+	c.hub.HandleScreenShareReady(c.user.ID)
 }

@@ -22,3 +22,12 @@ export const PLAYOUT_DELAY_HINT = 0.02 // 20ms target (aggressive but stable)
 // ICE restart for connection recovery
 export const ICE_RESTART_DELAY_MS = 2000
 export const ICE_RESTART_MAX_ATTEMPTS = 3
+
+// Priority settings - ensure voice is never starved by video
+export const AUDIO_PRIORITY = "high" as RTCPriorityType
+export const AUDIO_NETWORK_PRIORITY = "high" as RTCPriorityType
+
+// Video (screenshare) - deprioritized to protect voice
+export const VIDEO_PRIORITY = "low" as RTCPriorityType
+export const VIDEO_NETWORK_PRIORITY = "very-low" as RTCPriorityType
+export const VIDEO_MAX_BITRATE_BPS = 2_500_000 // 2.5 Mbps cap

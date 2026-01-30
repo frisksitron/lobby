@@ -40,6 +40,12 @@ const api = {
     setNativeMode: (mode: ThemeMode): Promise<void> => ipcRenderer.invoke("theme:set-native", mode)
   },
 
+  // Screen capture for screen sharing
+  screen: {
+    getSources: (): Promise<{ id: string; name: string; thumbnail: string }[]> =>
+      ipcRenderer.invoke("screen:getSources")
+  },
+
   // Auto-updater
   updater: {
     check: (): Promise<{ success: boolean; version?: string; error?: string }> =>

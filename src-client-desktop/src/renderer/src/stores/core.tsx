@@ -14,7 +14,13 @@ import { TYPING_TIMEOUT_MS } from "../lib/constants/ui"
 import { createLogger } from "../lib/logger"
 import { playSound } from "../lib/sounds"
 import { clearAllAuthData, setTokens } from "../lib/storage"
-import { audioManager, preloadWasm, warmupWebRTC, webrtcManager } from "../lib/webrtc"
+import {
+  audioManager,
+  preloadWasm,
+  screenShareManager,
+  warmupWebRTC,
+  webrtcManager
+} from "../lib/webrtc"
 import {
   type ErrorPayload,
   type ReadyPayload,
@@ -54,6 +60,13 @@ const [localVoice, setLocalVoice] = createSignal<LocalVoiceState>({
 const [typingUsers, setTypingUsers] = createSignal<TypingUser[]>([])
 const [users, setUsers] = createStore<Record<string, User>>({})
 const [isServerSwitching, startServerTransition] = createRoot(() => useTransition())
+
+// Screen share state
+const [isPickerOpen, setIsPickerOpen] = createSignal(false)
+const [isLocallySharing, setIsLocallySharing] = createSignal(false)
+const [localStream, setLocalStream] = createSignal<MediaStream | null>(null)
+const [viewingStreamerId, setViewingStreamerId] = createSignal<string | null>(null)
+const [remoteStream, setRemoteStream] = createSignal<MediaStream | null>(null)
 
 let wsUnsubscribes: (() => void)[] = []
 let retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -283,6 +296,11 @@ function rejoinVoice(muted: boolean, deafened: boolean): void {
 }
 
 function leaveVoice(): void {
+  // Stop screen share if active
+  if (isLocallySharing()) {
+    stopScreenShare()
+  }
+
   setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
 
   const userId = currentUserId()
@@ -299,6 +317,64 @@ function leaveVoice(): void {
   playSound("user-leave")
   webrtcManager.stop()
 }
+
+// Screen share functions
+function openScreenPicker(): void {
+  setIsPickerOpen(true)
+}
+
+function closeScreenPicker(): void {
+  setIsPickerOpen(false)
+}
+
+async function startScreenShare(sourceId: string): Promise<void> {
+  try {
+    await screenShareManager.startShare(sourceId)
+    // Set local stream for self-viewing
+    const stream = screenShareManager.getLocalStream()
+    setLocalStream(stream)
+    // isLocallySharing state is set when server sends SCREEN_SHARE_UPDATE
+    setIsPickerOpen(false)
+  } catch (err) {
+    log.error("Failed to start screen share:", err)
+    setIsPickerOpen(false)
+    throw err
+  }
+}
+
+function stopScreenShare(): void {
+  screenShareManager.stopShare()
+  setLocalStream(null)
+  // isLocallySharing state is set when server sends SCREEN_SHARE_UPDATE
+}
+
+function subscribeToStream(streamerId: string): void {
+  log.info(`[DEBUG] subscribeToStream called with streamerId: ${streamerId}`)
+  screenShareManager.subscribeToStream(streamerId)
+  // Don't set viewingStreamerId here - wait for the stream to actually arrive
+  // This prevents the preview from going blank while waiting for the remote stream
+  log.info(`[DEBUG] subscribeToStream completed, waiting for remote stream`)
+}
+
+function unsubscribeFromStream(): void {
+  screenShareManager.unsubscribe()
+  setViewingStreamerId(null)
+  setRemoteStream(null)
+}
+
+// Set up remote stream callback
+screenShareManager.onRemoteStream((stream, streamerId) => {
+  log.info(`[DEBUG] onRemoteStream callback - stream: ${!!stream}, streamerId: ${streamerId}`)
+  setRemoteStream(stream)
+  log.info(`[DEBUG] setRemoteStream called, current value: ${!!remoteStream()}`)
+  if (stream && streamerId) {
+    // Stream arrived - now update the viewing state to switch the UI
+    setViewingStreamerId(streamerId)
+    log.info(`[DEBUG] setViewingStreamerId called with: ${streamerId}`)
+  } else {
+    setViewingStreamerId(null)
+  }
+})
 
 function toggleMute(): void {
   const userId = currentUserId()
@@ -359,6 +435,7 @@ function setupWSListeners(): (() => void)[] {
           voiceMuted: member.muted ?? false,
           voiceDeafened: member.deafened ?? false,
           voiceSpeaking: false,
+          isStreaming: member.streaming ?? false,
           createdAt: member.created_at
         })
       })
@@ -384,6 +461,7 @@ function setupWSListeners(): (() => void)[] {
           voiceMuted: member.muted ?? false,
           voiceDeafened: member.deafened ?? false,
           voiceSpeaking: false,
+          isStreaming: member.streaming ?? false,
           createdAt: member.created_at
         }
       ])
@@ -478,6 +556,25 @@ function setupWSListeners(): (() => void)[] {
   unsubscribes.push(
     wsManager.on("voice_speaking", (payload: VoiceSpeakingPayload) => {
       handleVoiceSpeaking(payload)
+    })
+  )
+
+  unsubscribes.push(
+    wsManager.on("screen_share_update", (payload) => {
+      const userId = currentUserId()
+      updateUser(payload.user_id, { isStreaming: payload.streaming })
+
+      // If this is us, update local state
+      if (userId && payload.user_id === userId) {
+        setIsLocallySharing(payload.streaming)
+      }
+
+      // If the streamer we're watching stopped, clear viewing state
+      if (!payload.streaming && viewingStreamerId() === payload.user_id) {
+        screenShareManager.onStreamerStopped(payload.user_id)
+        setViewingStreamerId(null)
+        setRemoteStream(null)
+      }
     })
   )
 
@@ -888,11 +985,31 @@ export function useSession() {
   }
 }
 
+export function useScreenShare() {
+  return {
+    isPickerOpen,
+    isLocallySharing,
+    localStream,
+    viewingStreamerId,
+    remoteStream,
+    openScreenPicker,
+    closeScreenPicker,
+    startScreenShare,
+    stopScreenShare,
+    subscribeToStream,
+    unsubscribeFromStream
+  }
+}
+
 export function useUsers() {
   return {
     users: () => users,
     getUserById: (id: string) => users[id],
-    getAllUsers: () => Object.values(users)
+    getAllUsers: () => Object.values(users),
+    getActiveStreamers: () => {
+      const userId = currentUserId()
+      return Object.values(users).filter((u) => u.isStreaming && u.id !== userId)
+    }
   }
 }
 

@@ -5,7 +5,9 @@ import {
   TbOutlineHeadset,
   TbOutlineMicrophone,
   TbOutlineMicrophoneOff,
-  TbOutlinePhoneX
+  TbOutlinePhoneX,
+  TbOutlineScreenShare,
+  TbOutlineScreenShareOff
 } from "solid-icons/tb"
 import {
   type Component,
@@ -20,7 +22,7 @@ import {
 import type { User } from "../../../../shared/types"
 import { createDeferred } from "../../lib/reactive"
 import { audioManager } from "../../lib/webrtc"
-import { useConnection, useSession, useUsers } from "../../stores/core"
+import { useConnection, useScreenShare, useSession, useUsers } from "../../stores/core"
 import { useSettings } from "../../stores/settings"
 import Button from "../shared/Button"
 import ButtonWithIcon from "../shared/ButtonWithIcon"
@@ -95,24 +97,26 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
         size="sm"
         speaking={props.user.voiceSpeaking}
       />
-      <Switch>
-        <Match when={props.user.voiceDeafened}>
-          <div class="ml-auto">
-            <TbOutlineHeadphonesOff class="w-4 h-4 text-error" />
-          </div>
-        </Match>
-        <Match when={props.user.voiceMuted}>
-          <div class="ml-auto">
-            <TbOutlineMicrophoneOff class="w-4 h-4 text-error" />
-          </div>
-        </Match>
-      </Switch>
+      <div class="ml-auto flex items-center gap-1.5">
+        <Show when={props.user.isStreaming}>
+          <TbOutlineScreenShare class="w-[18px] h-[18px] shrink-0 text-accent" />
+        </Show>
+        <Switch>
+          <Match when={props.user.voiceDeafened}>
+            <TbOutlineHeadphonesOff class="w-4 h-4 shrink-0 text-error" />
+          </Match>
+          <Match when={props.user.voiceMuted}>
+            <TbOutlineMicrophoneOff class="w-4 h-4 shrink-0 text-error" />
+          </Match>
+        </Switch>
+      </div>
     </div>
   )
 }
 
 const VoiceControlsRow: Component = () => {
   const { localVoice, toggleMute, toggleDeafen } = useSession()
+  const { isLocallySharing, openScreenPicker, stopScreenShare } = useScreenShare()
   const [statsOpen, setStatsOpen] = createSignal(false)
   const [statsAnchorRect, setStatsAnchorRect] = createSignal<DOMRect | null>(null)
   let statsButtonRef: HTMLButtonElement | undefined
@@ -126,6 +130,14 @@ const VoiceControlsRow: Component = () => {
 
   const handleStatsClose = () => {
     setStatsOpen(false)
+  }
+
+  const handleScreenShare = () => {
+    if (isLocallySharing()) {
+      stopScreenShare()
+    } else {
+      openScreenPicker()
+    }
   }
 
   return (
@@ -159,10 +171,24 @@ const VoiceControlsRow: Component = () => {
           title={localVoice().deafened ? "Undeafen" : "Deafen"}
         />
 
+        <ButtonWithIcon
+          icon={
+            isLocallySharing() ? (
+              <TbOutlineScreenShareOff class="w-5 h-5" />
+            ) : (
+              <TbOutlineScreenShare class="w-5 h-5" />
+            )
+          }
+          variant={isLocallySharing() ? "danger" : "secondary"}
+          round
+          onClick={handleScreenShare}
+          title={isLocallySharing() ? "Stop Sharing" : "Share Screen"}
+        />
+
         <button
           ref={statsButtonRef}
           type="button"
-          class="p-2 rounded-full transition-colors hover:bg-surface-elevated"
+          class="p-2 rounded-full transition-colors hover:bg-surface-elevated cursor-pointer"
           classList={{ "bg-surface-elevated": statsOpen() }}
           onClick={handleStatsClick}
           title="Voice Stats"
@@ -185,6 +211,7 @@ const Sidebar: Component = () => {
   const { isServerUnavailable, currentUser } = useConnection()
   const { getAllUsers } = useUsers()
   const { settings } = useSettings()
+  const { subscribeToStream } = useScreenShare()
 
   const showConnecting = createDeferred(() => localVoice().connecting, 200)
 
@@ -232,6 +259,10 @@ const Sidebar: Component = () => {
 
   const handleCloseUserCard = (): void => {
     setSelectedUser(null)
+  }
+
+  const handleWatchStream = (streamerId: string): void => {
+    subscribeToStream(streamerId)
   }
 
   return (
@@ -330,6 +361,9 @@ const Sidebar: Component = () => {
         onClose={handleCloseUserCard}
         anchorRect={selectedUser()?.rect ?? null}
         isCurrentUser={selectedUser()?.user?.id === currentUserId()}
+        onWatch={
+          selectedUser()?.user ? () => handleWatchStream(selectedUser()?.user.id ?? "") : undefined
+        }
       />
     </div>
   )

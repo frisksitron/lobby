@@ -49,7 +49,7 @@ const ServerDropdown: Component = () => {
           e.stopPropagation()
           toggleServerDropdown()
         }}
-        class="flex items-center gap-2 px-3 py-2 rounded hover:bg-surface-elevated transition-colors max-w-[200px]"
+        class="flex items-center gap-2 px-3 py-2 rounded hover:bg-surface-elevated transition-colors max-w-[200px] cursor-pointer"
       >
         <span class="font-medium text-sm text-text-primary truncate">
           {activeServer()?.name || "Select Server"}
@@ -76,7 +76,7 @@ const ServerDropdown: Component = () => {
                 closeServerDropdown()
                 triggerAddServer()
               }}
-              class="w-full px-4 py-2 text-left hover:bg-surface transition-colors flex items-center gap-2"
+              class="w-full px-4 py-2 text-left hover:bg-surface transition-colors flex items-center gap-2 cursor-pointer"
             >
               <TbOutlinePlus class="w-4 h-4" />
               Add Server
@@ -88,7 +88,7 @@ const ServerDropdown: Component = () => {
                 <button
                   type="button"
                   onClick={() => handleServerSelect(server.id)}
-                  class={`w-full px-4 py-2 text-left hover:bg-surface transition-colors truncate ${
+                  class={`w-full px-4 py-2 text-left hover:bg-surface transition-colors truncate cursor-pointer ${
                     server.id === activeServer()?.id
                       ? "text-accent bg-surface"
                       : "text-text-primary"

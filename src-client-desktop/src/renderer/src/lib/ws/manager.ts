@@ -11,6 +11,7 @@ import {
   type RtcIceCandidatePayload,
   type RtcOfferPayload,
   type RtcReadyPayload,
+  type ScreenShareUpdatePayload,
   type TypingStartPayload,
   type TypingStopPayload,
   type UserJoinedPayload,
@@ -69,7 +70,8 @@ class WebSocketManager {
       "invalid_session",
       "server_unavailable",
       "error",
-      "server_error"
+      "server_error",
+      "screen_share_update"
     ]
     for (const type of eventTypes) {
       this.listeners.set(type, new Set())
@@ -262,6 +264,42 @@ class WebSocketManager {
   }
 
   /**
+   * Start screen share
+   */
+  startScreenShare(): void {
+    this.sendDispatch(WSCommandType.ScreenShareStart, {})
+  }
+
+  /**
+   * Stop screen share
+   */
+  stopScreenShare(): void {
+    this.sendDispatch(WSCommandType.ScreenShareStop, {})
+  }
+
+  /**
+   * Subscribe to a user's screen share
+   */
+  subscribeScreenShare(streamerId: string): void {
+    this.sendDispatch(WSCommandType.ScreenShareSubscribe, { streamer_id: streamerId })
+  }
+
+  /**
+   * Unsubscribe from screen share
+   */
+  unsubscribeScreenShare(): void {
+    this.sendDispatch(WSCommandType.ScreenShareUnsubscribe, {})
+  }
+
+  /**
+   * Signal that screen share video track is ready for server-initiated renegotiation.
+   * Called after replaceTrack() to trigger server to send a new offer.
+   */
+  screenShareReady(): void {
+    this.sendDispatch(WSCommandType.ScreenShareReady, {})
+  }
+
+  /**
    * Subscribe to an event
    */
   on<T extends WSClientEventType>(event: T, callback: EventCallback<T>): () => void {
@@ -435,6 +473,10 @@ class WebSocketManager {
 
       case WSEventType.Error:
         this.emit("server_error", message.d as ErrorPayload)
+        break
+
+      case WSEventType.ScreenShareUpdate:
+        this.emit("screen_share_update", message.d as ScreenShareUpdatePayload)
         break
 
       default:

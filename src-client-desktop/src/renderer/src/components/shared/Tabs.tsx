@@ -19,7 +19,7 @@ const Tabs: Component<TabsProps> = (props) => {
           <button
             type="button"
             onClick={() => props.onTabChange(tab.id)}
-            class={`py-2 pr-4 text-sm font-medium transition-colors relative ${
+            class={`py-2 pr-4 text-sm font-medium transition-colors relative cursor-pointer ${
               index() === 0 ? "pl-4" : "pl-2"
             } ${
               props.activeTab === tab.id

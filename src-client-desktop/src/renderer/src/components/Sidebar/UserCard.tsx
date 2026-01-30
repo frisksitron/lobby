@@ -1,4 +1,4 @@
-import { TbOutlineRefresh, TbOutlineVolume } from "solid-icons/tb"
+import { TbOutlineEye, TbOutlineRefresh, TbOutlineVolume } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { User } from "../../../../shared/types"
@@ -13,6 +13,7 @@ interface UserCardProps {
   onClose: () => void
   anchorRect: DOMRect | null
   isCurrentUser: boolean
+  onWatch?: () => void
 }
 
 function formatMemberSince(timestamp: string | undefined): string {
@@ -108,7 +109,7 @@ const UserCard: Component<UserCardProps> = (props) => {
               </div>
 
               <Show when={!props.isCurrentUser}>
-                <div class="p-4 border-t border-border">
+                <div class="p-4 border-t border-border space-y-3">
                   <div class="flex items-center gap-3">
                     <TbOutlineVolume class="w-4 h-4 text-text-secondary shrink-0" />
                     <VolumeSlider
@@ -126,7 +127,7 @@ const UserCard: Component<UserCardProps> = (props) => {
                       class="p-1 rounded transition-colors shrink-0"
                       classList={{
                         "opacity-30 cursor-default": volume() === 100,
-                        "hover:bg-surface-elevated": volume() !== 100
+                        "hover:bg-surface-elevated cursor-pointer": volume() !== 100
                       }}
                       disabled={volume() === 100}
                       title="Reset to 100%"
@@ -134,6 +135,16 @@ const UserCard: Component<UserCardProps> = (props) => {
                       <TbOutlineRefresh class="w-4 h-4 text-text-secondary" />
                     </button>
                   </div>
+                  <Show when={user.isStreaming && props.onWatch}>
+                    <button
+                      type="button"
+                      onClick={props.onWatch}
+                      class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-accent/15 hover:bg-accent/25 text-accent text-sm font-medium transition-colors cursor-pointer"
+                    >
+                      <TbOutlineEye class="w-4 h-4" />
+                      Watch Stream
+                    </button>
+                  </Show>
                 </div>
               </Show>
             </div>

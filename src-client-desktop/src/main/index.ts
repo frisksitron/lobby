@@ -3,6 +3,7 @@ import { electronApp, is, optimizer } from "@electron-toolkit/utils"
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   ipcMain,
   Menu,
   nativeTheme,
@@ -30,6 +31,11 @@ app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required")
 // GPU acceleration
 app.commandLine.appendSwitch("enable-gpu-rasterization")
 app.commandLine.appendSwitch("enable-zero-copy")
+
+// Enable Windows Graphics Capture for better HDR screen sharing
+// WGC properly handles HDR color spaces unlike legacy DXGI Duplicator
+// Requires Windows 11 24H2+; older systems fall back to DXGI automatically
+app.commandLine.appendSwitch("enable-features", "WgcScreenCapturer,WgcWindowCapturer")
 
 const log = createLogger("Main")
 
@@ -311,6 +317,19 @@ app.whenReady().then(() => {
 
   ipcMain.handle("theme:set-native", (_event, mode: "light" | "dark") => {
     nativeTheme.themeSource = mode
+  })
+
+  // Screen capture sources for screen sharing
+  ipcMain.handle("screen:getSources", async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ["window", "screen"],
+      thumbnailSize: { width: 150, height: 150 }
+    })
+    return sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      thumbnail: s.thumbnail.toDataURL()
+    }))
   })
 
   ipcMain.handle("storage:servers:get-all", () => {

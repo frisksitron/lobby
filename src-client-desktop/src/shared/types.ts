@@ -12,6 +12,7 @@ export interface User {
   voiceMuted: boolean
   voiceDeafened: boolean
   voiceSpeaking: boolean
+  isStreaming?: boolean
 }
 
 export interface Server {
