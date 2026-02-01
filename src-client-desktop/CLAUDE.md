@@ -22,6 +22,9 @@ npm run typecheck:node     # Type check main/preload only
 npm run typecheck:web      # Type check renderer only
 
 # Build
+npm run start              # Preview bundled app
+npm run build              # Typecheck + electron-vite build
+npm run build:unpack       # Unpacked build output
 npm run build:win          # Windows (NSIS installer)
 npm run build:mac          # macOS (DMG)
 npm run build:linux        # Linux (AppImage, snap, deb)
@@ -32,13 +35,19 @@ npm run build:linux        # Linux (AppImage, snap, deb)
 Three-process Electron architecture:
 
 - **Main process** (`src/main/index.ts`): Window management, IPC handlers, encrypted token storage via `safeStorage`, settings persistence via `electron-store`
-- **Preload** (`src/preload/index.ts`): Context bridge exposing `window.api.storage`, `window.api.settings`, `window.api.servers`
+- **Preload** (`src/preload/index.ts`): Context bridge exposing `window.api.storage`, `window.api.settings`, `window.api.servers`, `window.api.theme`, `window.api.screen`, `window.api.updater`
 - **Renderer** (`src/renderer/`): Solid.js UI with reactive stores
 
 ### Renderer Structure
 
 - `stores/` — Solid.js signal-based reactive state:
-  - `core.tsx` — Consolidated store providing hooks: `useConnection`, `useServers`, `useSession`, `useUsers` (connection state, server switching, voice, typing, presence)
+  - `connection.ts` — Connection state, current user/session, server availability
+  - `servers.ts` — Known servers, add/remove, last active
+  - `users.ts` — User data and presence
+  - `voice.ts` — Voice state (join/leave, mute/deafen/speaking)
+  - `typing.ts` — Typing state
+  - `screen-share.ts` — Screen share state
+  - `status.ts` — Presence/status state
   - `messages.ts` — Message history and sending
   - `settings.ts` — User preferences
   - `theme.ts` — Theme state
@@ -47,12 +56,15 @@ Three-process Electron architecture:
 - `lib/` — Business logic libraries:
   - `api/` — HTTP REST client and auth endpoints
   - `auth/` — Token refresh management
+  - `connection/` — Connection lifecycle and retry strategy
+  - `errors/` — User-facing error mapping
   - `ws/` — WebSocket connection manager
-  - `webrtc/` — WebRTC voice, audio processing, noise suppression, VAD
+  - `webrtc/` — WebRTC voice, audio processing, noise suppression, VAD, screen share
   - `themes/` — Theme definitions and runtime application
   - `sounds/` — Audio playback manager
   - `constants/` — UI and device constants
   - `logger/` — Dev-mode logging utility
+  - `reactive.ts` — Reactive helpers
   - `storage.ts` — Token storage helpers (IPC wrappers)
 - `components/` — UI components organized by feature (Header, MessageFeed, MessageInput, Sidebar, modals, settings, shared)
 - `src/shared/types.ts` — Shared type definitions (User, Server, Message, VoiceState, Theme, etc.)
@@ -74,7 +86,7 @@ Path alias: `@renderer` → `src/renderer/src`
 ## Code Style (Biome)
 
 - 2-space indent, 100-char line width
-- Double quotes, no semicolons, no trailing commas
+- Double quotes, semicolons as needed, no trailing commas
 - Solid.js domain rules enabled
 - CSS files excluded from Biome (Tailwind CSS v4 with PostCSS)
 - Imports auto-organized by Biome assist

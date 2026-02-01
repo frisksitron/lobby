@@ -29,10 +29,10 @@ const (
 	writeWait = 10 * time.Second
 
 	// Time allowed to read the next pong message from the peer
-	pongWait = 60 * time.Second
+	pongWait = 15 * time.Second
 
 	// Send pings to peer with this period. Must be less than pongWait
-	pingPeriod = (pongWait * 9) / 10
+	pingPeriod = 10 * time.Second
 
 	// Maximum message size allowed from peer (increased for video SDP)
 	maxMessageSize = 65536
@@ -502,8 +502,9 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 			Op:   OpDispatch,
 			Type: EventError,
 			Data: ErrorPayload{
-				Code:    "VOICE_JOIN_COOLDOWN",
-				Message: "Joining too fast, slow down",
+				Code:       "VOICE_JOIN_COOLDOWN",
+				Message:    "Joining too fast, slow down",
+				RetryAfter: c.voiceJoinCooldownAt.UnixMilli(),
 			},
 		}
 		return
@@ -528,8 +529,9 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 			Op:   OpDispatch,
 			Type: EventError,
 			Data: ErrorPayload{
-				Code:    "VOICE_JOIN_COOLDOWN",
-				Message: "Joining too fast, slow down",
+				Code:       "VOICE_JOIN_COOLDOWN",
+				Message:    "Joining too fast, slow down",
+				RetryAfter: c.voiceJoinCooldownAt.UnixMilli(),
 			},
 		}
 		return
@@ -768,8 +770,9 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 				Op:   OpDispatch,
 				Type: EventError,
 				Data: ErrorPayload{
-					Code:    "VOICE_STATE_COOLDOWN",
-					Message: "Too many toggles, try again in a moment",
+					Code:       "VOICE_STATE_COOLDOWN",
+					Message:    "Too many toggles, try again in a moment",
+					RetryAfter: c.voiceCooldownAt.UnixMilli(),
 				},
 			}
 			return
@@ -794,8 +797,9 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 				Op:   OpDispatch,
 				Type: EventError,
 				Data: ErrorPayload{
-					Code:    "VOICE_STATE_COOLDOWN",
-					Message: "Too many toggles, try again in a moment",
+					Code:       "VOICE_STATE_COOLDOWN",
+					Message:    "Too many toggles, try again in a moment",
+					RetryAfter: c.voiceCooldownAt.UnixMilli(),
 				},
 			}
 			return

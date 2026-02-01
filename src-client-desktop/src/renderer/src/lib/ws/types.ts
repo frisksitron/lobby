@@ -217,6 +217,7 @@ export interface ErrorPayload {
   code: string
   message: string
   nonce?: string
+  retry_after?: number // Unix ms timestamp
 }
 
 export interface ScreenShareUpdatePayload {
@@ -250,6 +251,7 @@ export type WSClientEventType =
   | "error"
   | "server_error"
   | "screen_share_update"
+  | "network_status_change"
 
 export interface WSClientEvents {
   connected: undefined
@@ -273,4 +275,5 @@ export interface WSClientEvents {
   error: Error
   server_error: ErrorPayload
   screen_share_update: ScreenShareUpdatePayload
+  network_status_change: { online: boolean }
 }

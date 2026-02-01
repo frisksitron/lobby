@@ -1,4 +1,6 @@
+import { setStatus } from "../../stores/status"
 import { getServerUrl, getValidToken, refreshToken } from "../auth/token-manager"
+import { ERROR_CODES, getErrorMessage } from "../errors/user-messages"
 import { type APIError, ApiError } from "./types"
 
 interface RequestOptions extends Omit<RequestInit, "body"> {
@@ -83,6 +85,21 @@ async function doFetch(
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
+    // Handle rate limiting (429)
+    if (response.status === 429) {
+      const retryAfter = response.headers.get("Retry-After")
+      const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60
+
+      setStatus({
+        type: "message",
+        code: ERROR_CODES.API_RATE_LIMITED,
+        message: getErrorMessage(ERROR_CODES.API_RATE_LIMITED),
+        expiresAt: Date.now() + retrySeconds * 1000
+      })
+
+      throw new ApiError("Too many requests", "RATE_LIMITED", 429)
+    }
+
     let errorData: APIError | null = null
     try {
       errorData = await response.json()

@@ -241,9 +241,10 @@ type VoiceSpeakingPayload struct {
 
 // ErrorPayload sent when the server rejects a client action
 type ErrorPayload struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Nonce   string `json:"nonce,omitempty"`
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	Nonce      string `json:"nonce,omitempty"`
+	RetryAfter int64  `json:"retry_after,omitempty"` // Unix ms timestamp
 }
 
 // ScreenShareUpdatePayload sent when a user's screen share state changes

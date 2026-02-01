@@ -8,8 +8,8 @@ import {
   onMount,
   Show
 } from "solid-js"
-import { useServers } from "../../stores/core"
 import { useMessages } from "../../stores/messages"
+import { useServers } from "../../stores/servers"
 import { computeMessageGrouping } from "./groupMessages"
 import Message from "./Message"
 

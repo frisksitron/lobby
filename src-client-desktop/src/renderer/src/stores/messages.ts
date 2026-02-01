@@ -3,7 +3,7 @@ import type { Message } from "../../../shared/types"
 import { apiRequest, apiRequestCurrentServer } from "../lib/api/client"
 import { createLogger } from "../lib/logger"
 import { type ErrorPayload, type MessageCreatePayload, wsManager } from "../lib/ws"
-import { getCurrentUser, getServerUrl } from "./core"
+import { connectionVersion, getCurrentUser, getServerUrl } from "./connection"
 
 const log = createLogger("Messages")
 
@@ -29,18 +29,26 @@ function toMessage(msg: MessageResponse): Message {
 }
 
 // Resource for initial message fetch - integrates with Suspense
+// Depends on connectionVersion to refetch on reconnection
 const [initialMessages] = createRoot(() =>
   createResource(
-    () => getServerUrl(),
-    async (url) => {
+    () => {
+      const url = getServerUrl()
+      const version = connectionVersion()
+      return url ? { url, version } : null
+    },
+    async (source) => {
       setPaginatedHistory([])
       setRealtimeMessages([])
       for (const timeout of pendingTimeouts.values()) clearTimeout(timeout)
       pendingTimeouts.clear()
       pendingMessages.clear()
 
-      if (!url) return []
-      const data = await apiRequest<MessageResponse[] | null>(url, "/api/v1/messages?limit=50")
+      if (!source) return []
+      const data = await apiRequest<MessageResponse[] | null>(
+        source.url,
+        "/api/v1/messages?limit=50"
+      )
       const messages = (data ?? []).map(toMessage)
       messages.reverse()
 

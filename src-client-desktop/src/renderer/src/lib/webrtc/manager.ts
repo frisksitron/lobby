@@ -25,6 +25,25 @@ const log = createLogger("WebRTC")
 
 type WebRTCState = "disconnected" | "connecting" | "connected" | "failed"
 
+/**
+ * WebRTC error codes for status notifications
+ */
+export type WebRTCErrorCode =
+  | "media_permission_denied"
+  | "no_device"
+  | "device_not_found"
+  | "device_in_use"
+  | "ice_failed"
+  | "ice_restart_exhausted"
+  | "offer_timeout"
+
+export interface WebRTCError {
+  code: WebRTCErrorCode
+  message: string
+}
+
+export type ErrorCallback = (error: WebRTCError) => void
+
 // 10 seconds - long enough for slow TURN relay setup, short enough to feel responsive
 const ANSWER_TIMEOUT_MS = 10_000
 
@@ -79,6 +98,8 @@ class WebRTCManager {
   // Promise that resolves when audio stream is ready
   private audioReadyPromise: Promise<void> | null = null
   private audioReadyResolve: (() => void) | null = null
+  // Error callback for status notifications
+  private errorCallback: ErrorCallback | null = null
 
   /**
    * Start WebRTC connection with voice chat
@@ -159,7 +180,35 @@ class WebRTCManager {
       if (this.audioReadyResolve) {
         this.audioReadyResolve()
       }
+      // Emit appropriate error based on the DOMException
+      this.emitMediaError(err)
       throw err
+    }
+  }
+
+  /**
+   * Parse media error and emit appropriate error code
+   */
+  private emitMediaError(err: unknown): void {
+    if (err instanceof DOMException) {
+      switch (err.name) {
+        case "NotAllowedError":
+          this.emitError("media_permission_denied", "Microphone access denied")
+          break
+        case "NotFoundError":
+          this.emitError("no_device", "No microphone found")
+          break
+        case "NotReadableError":
+          this.emitError("device_in_use", "Microphone is in use by another application")
+          break
+        case "OverconstrainedError":
+          this.emitError("device_not_found", "Selected microphone not available")
+          break
+        default:
+          this.emitError("no_device", `Media error: ${err.message}`)
+      }
+    } else {
+      this.emitError("no_device", "Failed to access microphone")
     }
   }
 
@@ -248,6 +297,22 @@ class WebRTCManager {
    */
   onSpeaking(callback: SpeakingCallback): void {
     this.speakingCallback = callback
+  }
+
+  /**
+   * Set callback for error events (media failures, ICE failures, etc.)
+   */
+  onError(callback: ErrorCallback): void {
+    this.errorCallback = callback
+  }
+
+  /**
+   * Emit an error to the callback
+   */
+  private emitError(code: WebRTCErrorCode, message: string): void {
+    if (this.errorCallback) {
+      this.errorCallback({ code, message })
+    }
   }
 
   /**
@@ -419,6 +484,7 @@ class WebRTCManager {
     this.answerTimeout = setTimeout(() => {
       if (this.state === "connecting") {
         log.error("Offer timeout - no initial offer from server within", ANSWER_TIMEOUT_MS, "ms")
+        this.emitError("offer_timeout", "Voice server not responding")
         this.stop()
         this.state = "failed"
       }
@@ -461,6 +527,7 @@ class WebRTCManager {
   private async restartIce(): Promise<void> {
     if (!this.peerConnection || this.iceRestartAttempts >= ICE_RESTART_MAX_ATTEMPTS) {
       log.error("ICE restart failed - max attempts reached")
+      this.emitError("ice_restart_exhausted", "Voice connection lost")
       this.state = "failed"
       return
     }

@@ -1,5 +1,6 @@
 import { type Component, Match, onMount, Show, Suspense, Switch } from "solid-js"
 import AuthView from "./components/AuthView"
+import ConnectionStatusView from "./components/ConnectionStatusView"
 import Header from "./components/Header/Header"
 import MessageFeed from "./components/MessageFeed/MessageFeed"
 import MessageInput from "./components/MessageInput/MessageInput"
@@ -10,10 +11,13 @@ import { ScreenPicker } from "./components/ScreenPicker"
 import Sidebar from "./components/Sidebar/Sidebar"
 import { StreamViewer } from "./components/StreamViewer"
 import ConfirmDialog from "./components/shared/ConfirmDialog"
-import { useConnection, useScreenShare, useServers, useUsers } from "./stores/core"
+import { shouldShowConnectionOverlay, useConnection } from "./stores/connection"
+import { useScreenShare } from "./stores/screen-share"
+import { useServers } from "./stores/servers"
 import { useSettings } from "./stores/settings"
 import { useTheme } from "./stores/theme"
 import { useUI } from "./stores/ui"
+import { useUsers } from "./stores/users"
 
 const MainUI: Component = () => {
   const {
@@ -98,6 +102,17 @@ const AppContent: Component = () => {
 
   const showAuth = () => connection.needsAuth() || connection.connectionState() === "disconnected"
 
+  const showConnectionOverlay = () => {
+    const state = connection.connectionState()
+    const detail = connection.connectionDetail()
+    // Only show when we have a server context but connection is problematic
+    return (
+      connection.currentServer() !== null &&
+      !showAuth() &&
+      shouldShowConnectionOverlay(state, detail)
+    )
+  }
+
   onMount(async () => {
     await loadTheme()
     loadSettings()
@@ -118,6 +133,9 @@ const AppContent: Component = () => {
         <Switch>
           <Match when={showAuth()}>
             <AuthView />
+          </Match>
+          <Match when={showConnectionOverlay()}>
+            <ConnectionStatusView />
           </Match>
           <Match when={connection.connectionState() === "connected"}>
             <Suspense fallback={null}>

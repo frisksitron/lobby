@@ -1,6 +1,6 @@
 import { type Component, Show } from "solid-js"
 import type { Message as MessageType } from "../../../../shared/types"
-import { useUsers } from "../../stores/core"
+import { useUsers } from "../../stores/users"
 import UserIdentity from "../shared/UserIdentity"
 
 interface MessageProps {

@@ -1,7 +1,9 @@
-import { TbOutlineAlertTriangle, TbOutlineChevronDown, TbOutlinePlus } from "solid-icons/tb"
+import { TbOutlineChevronDown, TbOutlinePlus } from "solid-icons/tb"
 import { type Component, For, Show } from "solid-js"
-import { useConnection, useServers, useSession } from "../../stores/core"
+import { useConnection } from "../../stores/connection"
+import { useServers } from "../../stores/servers"
 import { useUI } from "../../stores/ui"
+import { useVoice } from "../../stores/voice"
 
 const ServerDropdown: Component = () => {
   const { servers, activeServer, activeServerId, setActiveServer } = useServers()
@@ -12,8 +14,8 @@ const ServerDropdown: Component = () => {
     showConfirmDialog,
     closeConfirmDialog
   } = useUI()
-  const { localVoice, leaveVoice } = useSession()
-  const { isServerUnavailable, triggerAddServer } = useConnection()
+  const { localVoice, leaveVoice } = useVoice()
+  const { triggerAddServer } = useConnection()
 
   const handleServerSelect = async (serverId: string) => {
     if (activeServerId() === serverId) return
@@ -54,14 +56,6 @@ const ServerDropdown: Component = () => {
         <span class="font-medium text-sm text-text-primary truncate">
           {activeServer()?.name || "Select Server"}
         </span>
-        <Show when={isServerUnavailable()}>
-          <span
-            class="flex items-center gap-1 text-xs text-error"
-            title="Server unavailable - reconnecting..."
-          >
-            <TbOutlineAlertTriangle class="w-3.5 h-3.5" />
-          </span>
-        </Show>
         <TbOutlineChevronDown
           class={`w-4 h-4 flex-shrink-0 text-text-secondary transition-transform ${serverDropdownOpen() ? "rotate-180" : ""}`}
         />

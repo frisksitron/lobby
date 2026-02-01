@@ -1,4 +1,6 @@
-import { getValidToken, onTokenRefresh } from "../auth/token-manager"
+import { createConnectivitySignal } from "@solid-primitives/connectivity"
+import { createEffect, createRoot } from "solid-js"
+import { onTokenRefresh } from "../auth/token-manager"
 import { createLogger } from "../logger"
 import {
   type ErrorPayload,
@@ -32,21 +34,13 @@ const log = createLogger("WS")
 
 type EventCallback<T extends WSClientEventType> = (data: WSClientEvents[T]) => void
 
-const RECONNECT_DELAYS = [1, 2, 5, 10, 30, 60]
-
 class WebSocketManager {
   private ws: WebSocket | null = null
-  private serverUrl: string = ""
   private token: string = ""
   private state: WSConnectionState = "disconnected"
-  private reconnectAttempt: number = 0
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private listeners: Map<WSClientEventType, Set<EventCallback<WSClientEventType>>> = new Map()
-  private shouldReconnect: boolean = true
   private lastSequence: number = 0
   private sessionId: string = ""
-  private disconnectReason: "auth" | "network" | "normal" = "normal"
-  private serverUnavailableEmitted: boolean = false
   private isUnloading: boolean = false
 
   constructor() {
@@ -71,7 +65,8 @@ class WebSocketManager {
       "server_unavailable",
       "error",
       "server_error",
-      "screen_share_update"
+      "screen_share_update",
+      "network_status_change"
     ]
     for (const type of eventTypes) {
       this.listeners.set(type, new Set())
@@ -84,6 +79,43 @@ class WebSocketManager {
     window.addEventListener("beforeunload", () => {
       this.isUnloading = true
     })
+
+    // Detect when app becomes visible after sleep - WebSocket close event may not fire
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && this.state === "connected") {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+          log.info("Detected stale connection after visibility change")
+          this.state = "disconnected"
+          this.emit("disconnected", undefined)
+        }
+      }
+    })
+
+    // Defer reactive setup to avoid "computations created outside createRoot" warning
+    queueMicrotask(() => this.setupReactiveListeners())
+  }
+
+  private isOnline: () => boolean = () => navigator.onLine
+  private reactiveInitialized = false
+
+  private setupReactiveListeners(): void {
+    if (this.reactiveInitialized) return
+    this.reactiveInitialized = true
+
+    createRoot(() => {
+      const onlineSignal = createConnectivitySignal()
+
+      this.isOnline = onlineSignal
+
+      createEffect(() => {
+        const online = onlineSignal()
+        this.emit("network_status_change", { online })
+      })
+    })
+  }
+
+  getIsOnline(): boolean {
+    return this.isOnline()
   }
 
   /**
@@ -100,19 +132,10 @@ class WebSocketManager {
    */
   connect(serverUrl: string, token: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const isFreshConnection = this.serverUrl !== serverUrl
       this.cleanup()
 
-      this.serverUrl = serverUrl
       this.token = token
       this.state = "connecting"
-      this.shouldReconnect = true
-
-      if (isFreshConnection) {
-        this.reconnectAttempt = 0
-        this.disconnectReason = "normal"
-        this.serverUnavailableEmitted = false
-      }
 
       const wsUrl = `${serverUrl.replace(/^http/, "ws")}/ws?token=${encodeURIComponent(token)}`
 
@@ -159,23 +182,14 @@ class WebSocketManager {
         const wasConnected = this.state === "connected"
         this.state = "disconnected"
 
-        if (event.code === 4001) {
-          this.disconnectReason = "auth"
-        } else if (event.code !== 1000) {
-          this.disconnectReason = "network"
-        }
-
-        if (wasConnected) {
+        if (wasConnected && !this.isUnloading) {
+          // Emit disconnected event - connection.ts will handle retry
           this.emit("disconnected", undefined)
         }
 
         if (!settled) {
           settled = true
           reject(new Error(`WebSocket closed before ready: ${event.code}`))
-        }
-
-        if (this.shouldReconnect && event.code !== 1000 && !this.isUnloading) {
-          this.scheduleReconnect()
         }
       }
 
@@ -190,10 +204,8 @@ class WebSocketManager {
    * Disconnect from the server
    */
   disconnect(): void {
-    this.shouldReconnect = false
     this.cleanup()
     this.state = "disconnected"
-    this.emit("disconnected", undefined)
   }
 
   /**
@@ -380,10 +392,7 @@ class WebSocketManager {
   private handleReady(payload: ReadyPayload): void {
     log.info("Received READY, session:", payload.session_id)
     this.state = "connected"
-    this.reconnectAttempt = 0
     this.sessionId = payload.session_id
-    this.disconnectReason = "normal"
-    this.serverUnavailableEmitted = false
     this.emit("connected", undefined)
     this.emit("ready", payload)
   }
@@ -391,9 +400,6 @@ class WebSocketManager {
   private handleResumed(): void {
     log.info("Received RESUMED")
     this.state = "connected"
-    this.reconnectAttempt = 0
-    this.disconnectReason = "normal"
-    this.serverUnavailableEmitted = false
     this.emit("connected", undefined)
   }
 
@@ -498,64 +504,7 @@ class WebSocketManager {
     })
   }
 
-  private async scheduleReconnect(): Promise<void> {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-    }
-
-    const delay = RECONNECT_DELAYS[Math.min(this.reconnectAttempt, RECONNECT_DELAYS.length - 1)]
-    log.info(`Reconnecting in ${delay}s (attempt ${this.reconnectAttempt + 1})`)
-
-    this.state = "reconnecting"
-
-    if (this.disconnectReason === "network" && !this.serverUnavailableEmitted) {
-      this.serverUnavailableEmitted = true
-      log.info("Server unavailable - network error")
-      this.emit("server_unavailable", undefined)
-    }
-
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectAttempt++
-
-      try {
-        const freshToken = await getValidToken()
-        if (freshToken) {
-          this.token = freshToken
-          log.info("Got fresh token for reconnection")
-        } else {
-          log.info("No valid token available, stopping reconnection")
-          this.shouldReconnect = false
-          this.state = "disconnected"
-          this.disconnectReason = "auth"
-          this.emit("invalid_session", { resumable: false })
-          return
-        }
-      } catch (error) {
-        log.error("Failed to get fresh token:", error)
-        if (this.serverUnavailableEmitted) {
-          log.info("Token refresh failed during server unavailable, scheduling retry")
-          this.scheduleReconnect()
-          return
-        }
-        this.shouldReconnect = false
-        this.state = "disconnected"
-        this.disconnectReason = "auth"
-        this.emit("invalid_session", { resumable: false })
-        return
-      }
-
-      this.connect(this.serverUrl, this.token).catch((error) => {
-        log.error("Reconnection failed:", error)
-      })
-    }, delay * 1000)
-  }
-
   private cleanup(): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-
     if (this.ws) {
       this.ws.close(1000, "Client disconnect")
       this.ws = null

@@ -1,13 +1,15 @@
 import { type Component, createSignal } from "solid-js"
 import { TYPING_THROTTLE_MS } from "../../lib/constants/ui"
-import { useConnection, useServers, useSession } from "../../stores/core"
+import { useConnection } from "../../stores/connection"
 import { useMessages } from "../../stores/messages"
+import { useServers } from "../../stores/servers"
+import { useTyping } from "../../stores/typing"
 
 const MessageInput: Component = () => {
   const [inputValue, setInputValue] = createSignal("")
   const { sendMessage } = useMessages()
   const { activeServerId, activeServer } = useServers()
-  const { sendTyping } = useSession()
+  const { sendTyping } = useTyping()
   const { isServerUnavailable } = useConnection()
 
   let lastTypingSent = 0

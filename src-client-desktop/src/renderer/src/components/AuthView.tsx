@@ -1,7 +1,7 @@
 import { TbOutlineArrowLeft } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, Match, Show, Switch } from "solid-js"
 import { useAuthFlow } from "../stores/auth-flow"
-import { useConnection } from "../stores/core"
+import { useConnection } from "../stores/connection"
 import Button from "./shared/Button"
 
 const Spinner: Component = () => (

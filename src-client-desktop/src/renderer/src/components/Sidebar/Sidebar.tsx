@@ -22,8 +22,11 @@ import {
 import type { User } from "../../../../shared/types"
 import { createDeferred } from "../../lib/reactive"
 import { audioManager } from "../../lib/webrtc"
-import { useConnection, useScreenShare, useSession, useUsers } from "../../stores/core"
+import { useConnection } from "../../stores/connection"
+import { useScreenShare } from "../../stores/screen-share"
 import { useSettings } from "../../stores/settings"
+import { useUsers } from "../../stores/users"
+import { useVoice } from "../../stores/voice"
 import Button from "../shared/Button"
 import ButtonWithIcon from "../shared/ButtonWithIcon"
 import UserIdentity from "../shared/UserIdentity"
@@ -115,7 +118,7 @@ const VoiceMemberItem: Component<VoiceMemberItemProps> = (props) => {
 }
 
 const VoiceControlsRow: Component = () => {
-  const { localVoice, toggleMute, toggleDeafen } = useSession()
+  const { localVoice, toggleMute, toggleDeafen } = useVoice()
   const { isLocallySharing, openScreenPicker, stopScreenShare } = useScreenShare()
   const [statsOpen, setStatsOpen] = createSignal(false)
   const [statsAnchorRect, setStatsAnchorRect] = createSignal<DOMRect | null>(null)
@@ -207,8 +210,8 @@ const VoiceControlsRow: Component = () => {
 }
 
 const Sidebar: Component = () => {
-  const { localVoice, joinVoice, leaveVoice, session } = useSession()
-  const { isServerUnavailable, currentUser } = useConnection()
+  const { localVoice, joinVoice, leaveVoice } = useVoice()
+  const { isServerUnavailable, currentUser, session } = useConnection()
   const { getAllUsers } = useUsers()
   const { settings } = useSettings()
   const { subscribeToStream } = useScreenShare()
@@ -362,7 +365,9 @@ const Sidebar: Component = () => {
         anchorRect={selectedUser()?.rect ?? null}
         isCurrentUser={selectedUser()?.user?.id === currentUserId()}
         onWatch={
-          selectedUser()?.user ? () => handleWatchStream(selectedUser()?.user.id ?? "") : undefined
+          selectedUser()?.user && localVoice().inVoice
+            ? () => handleWatchStream(selectedUser()?.user.id ?? "")
+            : undefined
         }
       />
     </div>

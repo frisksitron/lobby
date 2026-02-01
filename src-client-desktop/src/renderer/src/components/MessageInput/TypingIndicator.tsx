@@ -1,8 +1,8 @@
 import { type Component, createMemo } from "solid-js"
-import { useSession } from "../../stores/core"
+import { useTyping } from "../../stores/typing"
 
 const TypingIndicator: Component = () => {
-  const { typingUsers } = useSession()
+  const { typingUsers } = useTyping()
 
   const typingNames = createMemo(() => {
     return typingUsers().map((tu) => tu.username)

@@ -7,7 +7,7 @@ import { type Component, createEffect, createSignal, For, onCleanup, Show } from
 import { Portal } from "solid-js/web"
 import type { User } from "../../../../shared/types"
 import { createLogger } from "../../lib/logger"
-import { useUsers } from "../../stores/core"
+import { useUsers } from "../../stores/users"
 
 const log = createLogger("StreamViewer")
 
