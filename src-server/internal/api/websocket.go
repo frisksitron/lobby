@@ -3,6 +3,7 @@ package api
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -67,4 +68,13 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	go client.WritePump()
 	go client.ReadPump()
+
+	// Close clients that don't IDENTIFY within 10 seconds
+	go func() {
+		time.Sleep(10 * time.Second)
+		if !client.IsIdentified() {
+			log.Printf("Client did not identify within timeout, closing")
+			client.Close()
+		}
+	}()
 }

@@ -8,8 +8,6 @@ export {
   type ConnectionDetail,
   type ConnectionDetailReason,
   type ConnectionDetailStatus,
-  type ConnectionEvents,
-  type ConnectionEventType,
   type ConnectionPhase,
   type ConnectionState,
   DEFAULT_CONNECTION_DETAIL,

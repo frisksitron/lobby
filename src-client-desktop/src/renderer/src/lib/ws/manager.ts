@@ -39,9 +39,11 @@ class WebSocketManager {
   private token: string = ""
   private state: WSConnectionState = "disconnected"
   private listeners: Map<WSClientEventType, Set<EventCallback<WSClientEventType>>> = new Map()
-  private lastSequence: number = 0
-  private sessionId: string = ""
   private isUnloading: boolean = false
+  private wsOnOpen: (() => void) | null = null
+  private wsOnMessage: ((event: MessageEvent) => void) | null = null
+  private wsOnError: ((event: Event) => void) | null = null
+  private wsOnClose: ((event: CloseEvent) => void) | null = null
 
   constructor() {
     const eventTypes: WSClientEventType[] = [
@@ -62,7 +64,6 @@ class WebSocketManager {
       "user_joined",
       "user_left",
       "invalid_session",
-      "server_unavailable",
       "error",
       "server_error",
       "screen_share_update",
@@ -149,17 +150,28 @@ class WebSocketManager {
 
       let settled = false
 
-      const onOpen = (): void => {
+      const connectTimeout = setTimeout(() => {
+        if (!settled) {
+          settled = true
+          log.warn("Connect timeout (20s)")
+          this.cleanup()
+          this.state = "disconnected"
+          reject(new Error("WebSocket connect timeout"))
+        }
+      }, 20000)
+
+      this.wsOnOpen = (): void => {
         log.info("Connected")
       }
 
-      const onMessage = (event: MessageEvent): void => {
+      this.wsOnMessage = (event: MessageEvent): void => {
         try {
           const message: WSMessage = JSON.parse(event.data)
           this.handleMessage(message)
 
           if (message.op === WSOpCode.Ready) {
             settled = true
+            clearTimeout(connectTimeout)
             resolve()
           }
         } catch (error) {
@@ -167,16 +179,17 @@ class WebSocketManager {
         }
       }
 
-      const onError = (event: Event): void => {
+      this.wsOnError = (event: Event): void => {
         log.error("WebSocket error:", event)
         this.emit("error", new Error("WebSocket connection error"))
         if (!settled) {
           settled = true
+          clearTimeout(connectTimeout)
           reject(new Error("WebSocket connection error"))
         }
       }
 
-      const onClose = (event: CloseEvent): void => {
+      this.wsOnClose = (event: CloseEvent): void => {
         log.info("Connection closed:", event.code, event.reason)
 
         const wasConnected = this.state === "connected"
@@ -189,14 +202,15 @@ class WebSocketManager {
 
         if (!settled) {
           settled = true
+          clearTimeout(connectTimeout)
           reject(new Error(`WebSocket closed before ready: ${event.code}`))
         }
       }
 
-      this.ws.addEventListener("open", onOpen)
-      this.ws.addEventListener("message", onMessage)
-      this.ws.addEventListener("error", onError)
-      this.ws.addEventListener("close", onClose)
+      this.ws.addEventListener("open", this.wsOnOpen)
+      this.ws.addEventListener("message", this.wsOnMessage)
+      this.ws.addEventListener("error", this.wsOnError)
+      this.ws.addEventListener("close", this.wsOnClose)
     })
   }
 
@@ -339,20 +353,6 @@ class WebSocketManager {
     return this.state === "connected"
   }
 
-  /**
-   * Get the current session ID
-   */
-  getSessionId(): string {
-    return this.sessionId
-  }
-
-  /**
-   * Get the last received sequence number
-   */
-  getLastSequence(): number {
-    return this.lastSequence
-  }
-
   private handleMessage(message: WSMessage): void {
     switch (message.op) {
       case WSOpCode.Hello:
@@ -361,10 +361,6 @@ class WebSocketManager {
 
       case WSOpCode.Ready:
         this.handleReady(message.d as ReadyPayload)
-        break
-
-      case WSOpCode.Resumed:
-        this.handleResumed()
         break
 
       case WSOpCode.InvalidSession:
@@ -384,34 +380,21 @@ class WebSocketManager {
     }
   }
 
-  private handleHello(payload: HelloPayload): void {
-    log.info("Received HELLO, heartbeat interval:", payload.heartbeat_interval)
+  private handleHello(_payload: HelloPayload): void {
+    log.info("Received HELLO")
     this.sendDispatch(WSCommandType.Identify, { token: this.token })
   }
 
   private handleReady(payload: ReadyPayload): void {
     log.info("Received READY, session:", payload.session_id)
     this.state = "connected"
-    this.sessionId = payload.session_id
     this.emit("connected", undefined)
     this.emit("ready", payload)
   }
 
-  private handleResumed(): void {
-    log.info("Received RESUMED")
-    this.state = "connected"
-    this.emit("connected", undefined)
-  }
-
   private handleInvalidSession(payload: InvalidSessionPayload): void {
-    log.info("Received INVALID_SESSION, resumable:", payload.resumable)
+    log.info("Received INVALID_SESSION")
     this.emit("invalid_session", payload)
-
-    if (!payload.resumable) {
-      this.sessionId = ""
-      this.lastSequence = 0
-      this.sendDispatch(WSCommandType.Identify, { token: this.token })
-    }
   }
 
   private handleReconnect(): void {
@@ -420,10 +403,6 @@ class WebSocketManager {
   }
 
   private handleDispatch(message: WSMessage): void {
-    if (message.s !== undefined) {
-      this.lastSequence = message.s
-    }
-
     switch (message.t) {
       case WSEventType.MessageCreate:
         this.emit("message_create", message.d as MessageCreatePayload)
@@ -493,6 +472,8 @@ class WebSocketManager {
   private send(message: WSMessage): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message))
+    } else {
+      log.warn("Message dropped: WebSocket not open", message.t)
     }
   }
 
@@ -506,9 +487,17 @@ class WebSocketManager {
 
   private cleanup(): void {
     if (this.ws) {
+      if (this.wsOnOpen) this.ws.removeEventListener("open", this.wsOnOpen)
+      if (this.wsOnMessage) this.ws.removeEventListener("message", this.wsOnMessage)
+      if (this.wsOnError) this.ws.removeEventListener("error", this.wsOnError)
+      if (this.wsOnClose) this.ws.removeEventListener("close", this.wsOnClose)
       this.ws.close(1000, "Client disconnect")
       this.ws = null
     }
+    this.wsOnOpen = null
+    this.wsOnMessage = null
+    this.wsOnError = null
+    this.wsOnClose = null
   }
 
   private emit<T extends WSClientEventType>(event: T, data: WSClientEvents[T]): void {

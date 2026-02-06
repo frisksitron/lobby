@@ -16,9 +16,9 @@ const (
 	// Lifecycle ops (Server -> Client)
 	OpHello          OpCode = 1 // Sent on connection, contains heartbeat interval
 	OpReady          OpCode = 2 // Sent after successful identify, contains initial state
-	OpResumed        OpCode = 3 // Sent after successful resume
+	OpResumed        OpCode = 3 // Reserved (resume not implemented)
 	OpInvalidSession OpCode = 4 // Session invalid, must re-identify
-	OpReconnect      OpCode = 5 // Server requests client reconnect
+	OpReconnect      OpCode = 5 // Reserved (server-initiated reconnect not implemented)
 )
 
 // Event types (Server -> Client via DISPATCH)
@@ -43,7 +43,6 @@ const (
 // Command types (Client -> Server via DISPATCH)
 const (
 	CmdIdentify              = "IDENTIFY"
-	CmdResume                = "RESUME"
 	CmdPresenceSet           = "PRESENCE_SET"
 	CmdMessageSend           = "MESSAGE_SEND"
 	CmdTyping                = "TYPING"
@@ -69,9 +68,7 @@ type WSMessage struct {
 
 // Server -> Client payloads
 
-type HelloPayload struct {
-	HeartbeatInterval int `json:"heartbeat_interval"` // Milliseconds
-}
+type HelloPayload struct{}
 
 type ReadyPayload struct {
 	SessionID string        `json:"session_id"`
@@ -91,16 +88,9 @@ type MemberState struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type ResumedPayload struct{}
-
 // InvalidSessionPayload sent when session is invalid
 type InvalidSessionPayload struct {
 	Resumable bool `json:"resumable"`
-}
-
-// ReconnectPayload sent when server requests reconnect
-type ReconnectPayload struct {
-	Reason string `json:"reason,omitempty"`
 }
 
 // MessageCreatePayload sent when a new message is created (via DISPATCH)
@@ -150,13 +140,6 @@ type IdentifyPayload struct {
 // PresenceOptions for initial presence on IDENTIFY
 type PresenceOptions struct {
 	Status string `json:"status"` // online, idle, dnd (not offline)
-}
-
-// ResumePayload sent by client to resume a session
-type ResumePayload struct {
-	Token     string `json:"token"`
-	SessionID string `json:"session_id"`
-	Seq       int64  `json:"seq"`
 }
 
 // MessageSendPayload sent by client to send a message

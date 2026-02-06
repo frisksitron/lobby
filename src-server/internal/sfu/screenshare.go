@@ -149,6 +149,14 @@ func (sm *ScreenShareManager) Subscribe(viewerID, streamerID string) error {
 		sm.mu.Unlock()
 		sm.removeVideoTrackFromViewer(currentStreamer, viewerID)
 		sm.mu.Lock()
+
+		// Re-validate after relock — stream may have stopped while unlocked
+		state, exists = sm.activeStreams[streamerID]
+		if !exists || state == nil || !state.HasTrack {
+			sm.mu.Unlock()
+			log.Printf("[ScreenShare] Subscribe aborted: %s's stream ended during unsubscribe", streamerID)
+			return nil
+		}
 	}
 
 	sm.subscriptions[viewerID] = streamerID

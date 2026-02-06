@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,9 +38,6 @@ const (
 	// Maximum message size allowed from peer (increased for video SDP)
 	maxMessageSize = 65536
 
-	// Heartbeat interval sent to clients (in ms)
-	heartbeatInterval = 30000
-
 	// Timeout for hub registration
 	registerTimeout = 5 * time.Second
 
@@ -51,25 +49,30 @@ const (
 	voiceJoinWindow   = 15 * time.Second
 	voiceJoinCooldown = 15 * time.Second
 
+	// Maximum message content length in characters
+	maxMessageContentLength = 4000
+
 	// Mute/deafen cooldown: 5 toggles in 5s triggers a 10s cooldown
-	voiceToggleLimit      = 5
+	voiceToggleLimit = 5
 	voiceToggleWindow     = 5 * time.Second
 	voiceCooldownDuration = 10 * time.Second
 )
 
 // Client represents a single WebSocket connection
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan *WSMessage
+	hub           *Hub
+	conn          *websocket.Conn
+	send          chan *WSMessage
+	connCloseOnce sync.Once
 
 	// Lifecycle state (replaces: closeOnce, done, identified)
 	state atomic.Int32
 
 	// User info (populated after IDENTIFY)
 	user      *models.User
-	status    string // online, idle, dnd, offline
-	sessionID string // Unique session identifier
+	mu        sync.RWMutex // Protects status
+	status    string       // online, idle, dnd, offline
+	sessionID string       // Unique session identifier
 
 	// DroppedMessages tracks how many messages have been dropped due to full buffer
 	DroppedMessages int64
@@ -97,9 +100,11 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 // Close performs cleanup for the client, ensuring it only happens once
 func (c *Client) Close() {
 	if !c.transitionTo(ClientStateClosing) {
-		return // Already closing/closed
+		// Already closing/closed, but still ensure conn is closed
+		c.connCloseOnce.Do(func() { c.conn.Close() })
+		return
 	}
-	c.conn.Close()
+	c.connCloseOnce.Do(func() { c.conn.Close() })
 	c.transitionTo(ClientStateClosed)
 }
 
@@ -184,10 +189,8 @@ func (c *Client) getUserID() string {
 // SendHello sends the HELLO message to initiate the connection
 func (c *Client) SendHello() {
 	c.send <- &WSMessage{
-		Op: OpHello,
-		Data: HelloPayload{
-			HeartbeatInterval: heartbeatInterval,
-		},
+		Op:   OpHello,
+		Data: HelloPayload{},
 	}
 }
 
@@ -205,8 +208,6 @@ func (c *Client) handleDispatch(msg *WSMessage) {
 	switch msg.Type {
 	case CmdIdentify:
 		c.handleIdentify(msg)
-	case CmdResume:
-		c.handleResume(msg)
 	case CmdMessageSend:
 		c.handleMessageSend(msg)
 	case CmdPresenceSet:
@@ -245,18 +246,6 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		return
 	}
 
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
-		log.Printf("Invalid identify payload")
-		return
-	}
-
-	token, ok := data["token"].(string)
-	if !ok || token == "" {
-		log.Printf("Missing token in identify")
-		return
-	}
-
 	// Token was already validated during the upgrade and user was set
 	if c.user == nil {
 		log.Printf("User not set during upgrade")
@@ -269,11 +258,12 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 	}
 	c.sessionID = uuid.New().String()
 
+	data, _ := msg.Data.(map[string]interface{})
 	if presence, ok := data["presence"].(map[string]interface{}); ok {
 		if status, ok := presence["status"].(string); ok {
 			switch status {
 			case "online", "idle", "dnd":
-				c.status = status
+				c.SetStatus(status)
 			}
 		}
 	}
@@ -306,36 +296,6 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 	log.Printf("Client identified: %s (session: %s)", c.user.ID, c.sessionID)
 }
 
-func (c *Client) handleResume(msg *WSMessage) {
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
-		log.Printf("Invalid resume payload")
-		c.sendInvalidSession(false)
-		return
-	}
-
-	sessionID, ok := data["session_id"].(string)
-	if !ok || sessionID == "" {
-		log.Printf("Missing session_id in resume")
-		c.sendInvalidSession(false)
-		return
-	}
-
-	// Session storage not implemented yet - always send INVALID_SESSION
-	log.Printf("Resume attempted for session %s - not implemented yet", sessionID)
-	c.sendInvalidSession(false)
-}
-
-// sendInvalidSession sends an INVALID_SESSION message
-func (c *Client) sendInvalidSession(resumable bool) {
-	c.send <- &WSMessage{
-		Op: OpInvalidSession,
-		Data: InvalidSessionPayload{
-			Resumable: resumable,
-		},
-	}
-}
-
 func (c *Client) handleMessageSend(msg *WSMessage) {
 	if !c.IsIdentified() {
 		return
@@ -352,6 +312,19 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 	}
 
 	nonce, _ := data["nonce"].(string)
+
+	if len(content) > maxMessageContentLength {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    "MESSAGE_TOO_LONG",
+				Message: "Message exceeds maximum length",
+				Nonce:   nonce,
+			},
+		}
+		return
+	}
 
 	// Rate limit check
 	now := time.Now()
@@ -409,14 +382,14 @@ func (c *Client) handlePresenceSet(msg *WSMessage) {
 
 	switch status {
 	case "online", "idle", "dnd", "offline":
-		c.status = status
+		c.SetStatus(status)
 	default:
 		return
 	}
 
 	c.hub.BroadcastDispatch(EventPresenceUpdate, PresenceUpdatePayload{
 		UserID: c.user.ID,
-		Status: c.status,
+		Status: c.GetStatus(),
 	})
 }
 
@@ -435,6 +408,20 @@ func (c *Client) handleTyping() {
 // SetUser sets the authenticated user for this client
 func (c *Client) SetUser(user *models.User) {
 	c.user = user
+}
+
+// GetStatus returns the client's current presence status
+func (c *Client) GetStatus() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.status
+}
+
+// SetStatus sets the client's presence status
+func (c *Client) SetStatus(status string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.status = status
 }
 
 // State returns the current client state
@@ -485,6 +472,7 @@ func (c *Client) transitionTo(newState ClientState) bool {
 func (c *Client) CloseSend() {
 	if c.transitionTo(ClientStateClosing) {
 		close(c.send)
+		c.connCloseOnce.Do(func() { c.conn.Close() })
 		c.transitionTo(ClientStateClosed)
 	}
 }
@@ -548,18 +536,27 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 		}
 	}
 
-	c.hub.SetUserVoiceState(c.user.ID, &VoiceState{
-		Muted:    muted,
-		Deafened: deafened,
-	})
-
 	sfuInst := c.hub.GetSFU()
 	if sfuInst != nil {
 		_, err := sfuInst.AddPeer(c.user.ID)
 		if err != nil {
 			log.Printf("Error creating SFU peer for %s: %v", c.user.ID, err)
+			c.send <- &WSMessage{
+				Op:   OpDispatch,
+				Type: EventError,
+				Data: ErrorPayload{
+					Code:    "VOICE_JOIN_FAILED",
+					Message: "Failed to join voice",
+				},
+			}
+			return
 		}
 	}
+
+	c.hub.SetUserVoiceState(c.user.ID, &VoiceState{
+		Muted:    muted,
+		Deafened: deafened,
+	})
 
 	participants := c.hub.GetVoiceParticipantIDs(c.user.ID)
 
@@ -905,6 +902,15 @@ func (c *Client) handleScreenShareReady() {
 
 	// User must be in voice
 	if c.hub.GetUserVoiceState(c.user.ID) == nil {
+		return
+	}
+
+	// User must have an active or pending screen share
+	sm := c.hub.GetScreenShareManager()
+	if sm == nil {
+		return
+	}
+	if !sm.IsStreaming(c.user.ID) && !sm.IsPendingShare(c.user.ID) {
 		return
 	}
 

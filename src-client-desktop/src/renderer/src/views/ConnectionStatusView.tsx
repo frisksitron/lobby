@@ -69,14 +69,14 @@ const ConnectionStatusView: Component = () => {
 
   return (
     <div class="flex-1 flex items-center justify-center p-4">
-      <div class="bg-surface rounded-lg shadow-xl max-w-md w-full p-6">
-        <div class="flex flex-col items-center space-y-6">
-          <Icon />
+      <div class="bg-surface rounded-xl shadow-xl max-w-md w-full ring-1 ring-white/8">
+        <div class="px-6 pt-5 pb-3 border-b border-border">
+          <p class="text-sm font-medium text-text-primary truncate">{serverName()}</p>
+          <p class="text-xs text-text-secondary truncate">{serverUrl()}</p>
+        </div>
 
-          <div class="text-center space-y-1">
-            <p class="font-medium text-text-primary">{serverName()}</p>
-            <p class="text-sm text-text-secondary truncate max-w-xs">{serverUrl()}</p>
-          </div>
+        <div class="px-6 pt-6 pb-6 flex flex-col items-center space-y-4">
+          <Icon />
 
           <p class="text-sm text-text-secondary text-center">
             {statusInfo().message}

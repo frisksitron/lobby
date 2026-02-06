@@ -109,6 +109,10 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.clients[req.client] = true
 			if req.client.user != nil {
+				if old, ok := h.userClients[req.client.user.ID]; ok && old != req.client {
+					old.Close()
+					delete(h.clients, old)
+				}
 				h.userClients[req.client.user.ID] = req.client
 			}
 			h.mu.Unlock()
@@ -121,7 +125,7 @@ func (h *Hub) Run() {
 						ID:        req.client.user.ID,
 						Username:  req.client.user.Username,
 						Avatar:    req.client.user.GetAvatarURL(),
-						Status:    req.client.status,
+						Status:    req.client.GetStatus(),
 						CreatedAt: req.client.user.CreatedAt,
 					},
 				}, req.client)
@@ -141,7 +145,9 @@ func (h *Hub) Run() {
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				if client.user != nil {
-					delete(h.userClients, client.user.ID)
+					if h.userClients[client.user.ID] == client {
+						delete(h.userClients, client.user.ID)
+					}
 				}
 				client.CloseSend()
 			}
@@ -167,6 +173,9 @@ func (h *Hub) Run() {
 
 			if client.user != nil {
 				h.broadcastPresenceUpdate(client.user.ID, "offline", nil)
+				h.BroadcastDispatch(EventUserLeft, UserLeftPayload{
+					UserID: client.user.ID,
+				})
 			}
 
 		case message := <-h.broadcast:
@@ -181,6 +190,9 @@ func (h *Hub) Run() {
 
 // Caller must hold at least a read lock on h.mu.
 func (h *Hub) sendToClientLocked(client *Client, msg *WSMessage) {
+	if !client.IsIdentified() {
+		return
+	}
 	select {
 	case client.send <- msg:
 		// Message sent successfully
@@ -302,7 +314,7 @@ func (h *Hub) GetOnlineMembers() []MemberState {
 			ID:        client.user.ID,
 			Username:  client.user.Username,
 			Avatar:    client.user.GetAvatarURL(),
-			Status:    client.status,
+			Status:    client.GetStatus(),
 			InVoice:   inVoice,
 			Muted:     muted,
 			Deafened:  deafened,

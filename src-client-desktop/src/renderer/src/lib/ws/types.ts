@@ -33,7 +33,6 @@ export enum WSEventType {
 // Command types (Client -> Server via DISPATCH)
 export enum WSCommandType {
   Identify = "IDENTIFY",
-  Resume = "RESUME",
   PresenceSet = "PRESENCE_SET",
   MessageSend = "MESSAGE_SEND",
   Typing = "TYPING",
@@ -60,9 +59,7 @@ export interface WSMessage<T = unknown> {
 
 // Server -> Client payloads
 
-export interface HelloPayload {
-  heartbeat_interval: number // milliseconds
-}
+export type HelloPayload = Record<string, never>
 
 export interface MemberState {
   id: string
@@ -80,22 +77,16 @@ export interface ReadyPayload {
   session_id: string
   user: {
     id: string
-    username?: string
+    username: string
     email: string
-    avatar_url?: string
+    avatarUrl?: string
+    createdAt?: string
   }
   members: MemberState[]
 }
 
-// Empty - missed events follow
-export type ResumedPayload = Record<string, never>
-
 export interface InvalidSessionPayload {
   resumable: boolean
-}
-
-export interface ReconnectPayload {
-  reason?: string
 }
 
 export interface MessageCreatePayload {
@@ -138,12 +129,6 @@ export interface IdentifyPayload {
   presence?: {
     status: "online" | "idle" | "dnd"
   }
-}
-
-export interface ResumePayload {
-  token: string
-  session_id: string
-  seq: number
 }
 
 export interface MessageSendPayload {
@@ -226,7 +211,7 @@ export interface ScreenShareUpdatePayload {
 }
 
 // WebSocket connection states
-export type WSConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting"
+export type WSConnectionState = "disconnected" | "connecting" | "connected"
 
 // Event types for the event emitter (internal client events)
 export type WSClientEventType =
@@ -247,7 +232,6 @@ export type WSClientEventType =
   | "user_joined"
   | "user_left"
   | "invalid_session"
-  | "server_unavailable"
   | "error"
   | "server_error"
   | "screen_share_update"
@@ -271,7 +255,6 @@ export interface WSClientEvents {
   user_joined: UserJoinedPayload
   user_left: UserLeftPayload
   invalid_session: InvalidSessionPayload
-  server_unavailable: undefined
   error: Error
   server_error: ErrorPayload
   screen_share_update: ScreenShareUpdatePayload
