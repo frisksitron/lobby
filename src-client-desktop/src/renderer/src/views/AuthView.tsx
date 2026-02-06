@@ -1,3 +1,4 @@
+import { useNavigate } from "@solidjs/router"
 import { TbOutlineArrowLeft } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, Match, Show, Switch } from "solid-js"
 import Button from "../components/shared/Button"
@@ -11,6 +12,7 @@ const Spinner: Component = () => (
 const AuthView: Component = () => {
   const authFlow = useAuthFlow()
   const connection = useConnection()
+  const navigate = useNavigate()
 
   const [serverUrlInput, setServerUrlInput] = createSignal("")
   const [emailInput, setEmailInput] = createSignal("")
@@ -49,6 +51,8 @@ const AuthView: Component = () => {
         result.serverInfo,
         result.tokens
       )
+      const server = connection.currentServer()
+      if (server) navigate(`/server/${server.id}`)
     }
   }
 
@@ -239,14 +243,16 @@ const AuthView: Component = () => {
                       setCodeInput(digits)
                       e.currentTarget.value = digits
                       if (digits.length === 6) {
-                        authFlow.verifyMagicCode(digits).then((result) => {
+                        authFlow.verifyMagicCode(digits).then(async (result) => {
                           if (result) {
-                            connection.onAuthSuccess(
+                            await connection.onAuthSuccess(
                               result.user,
                               result.serverUrl,
                               result.serverInfo,
                               result.tokens
                             )
+                            const server = connection.currentServer()
+                            if (server) navigate(`/server/${server.id}`)
                           }
                         })
                       }

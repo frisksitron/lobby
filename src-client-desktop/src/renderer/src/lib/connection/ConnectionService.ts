@@ -598,12 +598,6 @@ class ConnectionService {
     })
   }
 
-  triggerReauth(): void {
-    ++this.connectGeneration
-    this.disconnectWS()
-    this.setPhase("needs_auth")
-  }
-
   async logout(): Promise<void> {
     ++this.connectGeneration
     this.retry.cancel()

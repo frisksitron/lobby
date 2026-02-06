@@ -1,4 +1,5 @@
-import { TbOutlineAlertTriangle, TbOutlineWifiOff } from "solid-icons/tb"
+import { useNavigate } from "@solidjs/router"
+import { TbOutlineAlertTriangle, TbOutlineLock, TbOutlineWifiOff } from "solid-icons/tb"
 import { type Component, Match, Show, Switch } from "solid-js"
 import Button from "../components/shared/Button"
 import {
@@ -14,6 +15,7 @@ const Spinner: Component = () => (
 
 const ConnectionStatusView: Component = () => {
   const connection = useConnection()
+  const navigate = useNavigate()
 
   const serverName = () => connection.currentServer()?.name ?? "Server"
   const serverUrl = () => connection.currentServer()?.url ?? ""
@@ -21,6 +23,10 @@ const ConnectionStatusView: Component = () => {
   const statusInfo = (): ConnectionStatusInfo => {
     const detail = connection.connectionDetail()
     const state = connection.connectionState()
+
+    if (state === "needs_auth") {
+      return CONNECTION_STATUS.needsAuth
+    }
 
     if (detail.status === "offline") {
       return CONNECTION_STATUS.offline
@@ -48,22 +54,22 @@ const ConnectionStatusView: Component = () => {
     return CONNECTION_STATUS.connecting
   }
 
-  const Icon: Component = () => {
-    const info = statusInfo()
-    return (
-      <Switch>
-        <Match when={info.type === "offline"}>
-          <TbOutlineWifiOff class="w-8 h-8 text-error" />
-        </Match>
-        <Match when={info.type === "max_retries" || info.type === "unavailable"}>
-          <TbOutlineAlertTriangle class="w-8 h-8 text-warning" />
-        </Match>
-        <Match when={true}>
-          <Spinner />
-        </Match>
-      </Switch>
-    )
-  }
+  const Icon: Component = () => (
+    <Switch>
+      <Match when={statusInfo().type === "needs_auth"}>
+        <TbOutlineLock class="w-8 h-8 text-warning" />
+      </Match>
+      <Match when={statusInfo().type === "offline"}>
+        <TbOutlineWifiOff class="w-8 h-8 text-error" />
+      </Match>
+      <Match when={statusInfo().type === "max_retries" || statusInfo().type === "unavailable"}>
+        <TbOutlineAlertTriangle class="w-8 h-8 text-warning" />
+      </Match>
+      <Match when={true}>
+        <Spinner />
+      </Match>
+    </Switch>
+  )
 
   const countdown = () => connection.countdownSeconds()
 
@@ -92,6 +98,14 @@ const ConnectionStatusView: Component = () => {
             <div class="pt-2">
               <Button variant="primary" onClick={() => connection.retryNow()}>
                 Retry Now
+              </Button>
+            </div>
+          </Show>
+
+          <Show when={statusInfo().showSignIn}>
+            <div class="pt-2">
+              <Button variant="primary" onClick={() => navigate("/auth")}>
+                Sign In
               </Button>
             </div>
           </Show>

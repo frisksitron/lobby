@@ -2,10 +2,10 @@ import {
   type Component,
   createEffect,
   createMemo,
-  createRenderEffect,
   createSignal,
   For,
   onCleanup,
+  onMount,
   Show
 } from "solid-js"
 
@@ -24,6 +24,8 @@ const MessageFeed: Component = () => {
   let isUserNearBottom = true
   let isLoadingMore = false
   let hasScrolledInitially = false
+  let isResizing = false
+  let resizeTimer: number | undefined
 
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
 
@@ -52,7 +54,11 @@ const MessageFeed: Component = () => {
   }
 
   const handleScroll = (): void => {
-    isUserNearBottom = checkIfNearBottom()
+    // During resize, scroll events fire with stale geometry — don't let them
+    // clear the near-bottom flag or the ResizeObserver can't re-pin.
+    if (!isResizing) {
+      isUserNearBottom = checkIfNearBottom()
+    }
     if (isUserNearBottom) {
       setHasNewMessages(false)
     }
@@ -87,29 +93,37 @@ const MessageFeed: Component = () => {
     })
   }
 
-  createRenderEffect(() => {
+  onMount(() => {
+    const feed = feedRef
+    const sentinel = sentinelRef
+    if (!feed || !sentinel) return
+
     // Setup scroll listener
-    if (feedRef) {
-      feedRef.addEventListener("scroll", handleScroll)
-      onCleanup(() => feedRef?.removeEventListener("scroll", handleScroll))
-    }
+    feed.addEventListener("scroll", handleScroll)
+    onCleanup(() => feed.removeEventListener("scroll", handleScroll))
 
-    // Keep scroll locked to bottom during resize
-    if (feedRef) {
-      const resizeObserver = new ResizeObserver(() => {
-        if (isUserNearBottom) {
-          scrollToBottom()
-        }
-      })
-      resizeObserver.observe(feedRef)
-      onCleanup(() => resizeObserver.disconnect())
-    }
-  })
+    // Keep scroll locked to bottom during resize.
+    // Flag resize-in-progress so handleScroll doesn't clear isUserNearBottom
+    // due to intermediate scroll events fired with stale geometry.
+    const resizeObserver = new ResizeObserver(() => {
+      isResizing = true
+      clearTimeout(resizeTimer)
+      resizeTimer = window.setTimeout(() => {
+        isResizing = false
+      }, 150)
 
-  createRenderEffect(() => {
-    if (!sentinelRef) return
+      if (isUserNearBottom) {
+        scrollToBottom()
+      }
+    })
+    resizeObserver.observe(feed)
+    onCleanup(() => {
+      resizeObserver.disconnect()
+      clearTimeout(resizeTimer)
+    })
 
-    const observer = new IntersectionObserver(
+    // Load more history when sentinel at top becomes visible
+    const intersectionObserver = new IntersectionObserver(
       (entries) => {
         const entry = entries[0]
         if (entry.isIntersecting && hasMoreHistory() && !isLoadingHistory()) {
@@ -117,14 +131,14 @@ const MessageFeed: Component = () => {
         }
       },
       {
-        root: feedRef,
+        root: feed,
         rootMargin: "100px 0px 0px 0px",
         threshold: 0
       }
     )
 
-    observer.observe(sentinelRef)
-    onCleanup(() => observer.disconnect())
+    intersectionObserver.observe(sentinel)
+    onCleanup(() => intersectionObserver.disconnect())
   })
 
   // Scroll to bottom on initial load

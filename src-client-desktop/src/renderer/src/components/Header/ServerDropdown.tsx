@@ -120,6 +120,7 @@ const ServerDropdown: Component = () => {
             type="button"
             onClick={() => {
               closeServerDropdown()
+              navigate("/auth")
               triggerAddServer()
             }}
             class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface transition-colors cursor-pointer"

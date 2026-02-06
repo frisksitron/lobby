@@ -52,7 +52,6 @@ export function useConnection() {
       tokens: { accessToken: string; refreshToken: string; expiresAt: string }
     ) => connectionService.onAuthSuccess(user, serverUrl, serverInfo, tokens),
     triggerAddServer: () => connectionService.triggerAddServer(),
-    triggerReauth: () => connectionService.triggerReauth(),
     logout: () => connectionService.logout(),
     disconnect: () => connectionService.disconnect(),
     getServerUrl: () => connectionService.getServerUrl(),

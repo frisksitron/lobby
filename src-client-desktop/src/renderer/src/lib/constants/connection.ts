@@ -4,12 +4,14 @@ export type ConnectionStatusType =
   | "reconnecting"
   | "unavailable"
   | "max_retries"
+  | "needs_auth"
 
 export type ConnectionStatusInfo = {
   type: ConnectionStatusType
   message: string
   showCountdown: boolean
   showRetry: boolean
+  showSignIn?: boolean
 }
 
 export const CONNECTION_STATUS = {
@@ -36,6 +38,13 @@ export const CONNECTION_STATUS = {
     message: "Server unavailable.",
     showCountdown: true,
     showRetry: true
+  },
+  needsAuth: {
+    type: "needs_auth",
+    message: "Session expired. Sign in to continue.",
+    showCountdown: false,
+    showRetry: false,
+    showSignIn: true
   },
   maxRetries: (attempts: number): ConnectionStatusInfo => ({
     type: "max_retries",
