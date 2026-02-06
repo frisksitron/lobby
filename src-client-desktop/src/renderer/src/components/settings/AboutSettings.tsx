@@ -1,4 +1,4 @@
-import { type Component, createSignal, onCleanup, onMount, Show } from "solid-js"
+import { type Component, createEffect, createSignal, onCleanup, Show } from "solid-js"
 
 type UpdateStatus =
   | { state: "idle" }
@@ -12,7 +12,7 @@ type UpdateStatus =
 const AboutSettings: Component = () => {
   const [status, setStatus] = createSignal<UpdateStatus>({ state: "idle" })
 
-  onMount(() => {
+  createEffect(() => {
     const cleanups = [
       window.api.updater.onChecking(() => setStatus({ state: "checking" })),
       window.api.updater.onAvailable((info) =>

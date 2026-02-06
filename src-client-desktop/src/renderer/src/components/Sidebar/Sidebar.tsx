@@ -9,16 +9,7 @@ import {
   TbOutlineScreenShare,
   TbOutlineScreenShareOff
 } from "solid-icons/tb"
-import {
-  type Component,
-  createMemo,
-  createSignal,
-  For,
-  Match,
-  onMount,
-  Show,
-  Switch
-} from "solid-js"
+import { type Component, createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
 import type { User } from "../../../../shared/types"
 import { createDeferred } from "../../lib/reactive"
 import { audioManager } from "../../lib/webrtc"
@@ -29,6 +20,7 @@ import { useUsers } from "../../stores/users"
 import { useVoice } from "../../stores/voice"
 import Button from "../shared/Button"
 import ButtonWithIcon from "../shared/ButtonWithIcon"
+import SidePanel from "../shared/SidePanel"
 import UserIdentity from "../shared/UserIdentity"
 import UserCard from "./UserCard"
 import VoiceStatsPanel from "./VoiceStatsPanel"
@@ -216,20 +208,17 @@ const Sidebar: Component = () => {
   const { settings } = useSettings()
   const { subscribeToStream } = useScreenShare()
 
+  const volumes = settings().userVolumes
+  if (volumes) {
+    audioManager.loadUserVolumes(volumes)
+  }
+
   const showConnecting = createDeferred(() => localVoice().connecting, 200)
 
   const [selectedUser, setSelectedUser] = createSignal<{
     user: User
     rect: DOMRect
   } | null>(null)
-
-  // Load user volumes into audio manager on mount
-  onMount(() => {
-    const volumes = settings().userVolumes
-    if (volumes) {
-      audioManager.loadUserVolumes(volumes)
-    }
-  })
 
   // Get current user ID to prevent self-card
   const currentUserId = () => currentUser()?.id
@@ -269,7 +258,7 @@ const Sidebar: Component = () => {
   }
 
   return (
-    <div class="w-60 bg-surface rounded-xl flex flex-col m-2 overflow-hidden ring-1 ring-white/8">
+    <SidePanel>
       <div class="flex-1 overflow-y-auto px-2 py-3">
         <div class="space-y-1">
           <h4 class="text-xs font-medium text-text-muted px-2 pb-1">
@@ -370,7 +359,7 @@ const Sidebar: Component = () => {
             : undefined
         }
       />
-    </div>
+    </SidePanel>
   )
 }
 

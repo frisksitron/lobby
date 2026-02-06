@@ -1,7 +1,9 @@
 import { createStore, produce, reconcile } from "solid-js/store"
 import type { User } from "../../../shared/types"
+import { connectionService } from "../lib/connection"
 
 const [users, setUsers] = createStore<Record<string, User>>({})
+export { users }
 
 export function addUser(user: User): void {
   setUsers(user.id, user)
@@ -48,16 +50,11 @@ export function getAllUsers(): User[] {
   return Object.values(users)
 }
 
-export { users }
-
-let getCurrentUserId: () => string | null = () => null
-
-export function initUsers(currentUserIdGetter: () => string | null): void {
-  getCurrentUserId = currentUserIdGetter
-}
+// Subscribe to lifecycle events
+connectionService.onLifecycle("users_clear", clearUsers)
 
 export function getActiveStreamers(): User[] {
-  const userId = getCurrentUserId()
+  const userId = connectionService.getUserId()
   return Object.values(users).filter((u) => u.isStreaming && u.id !== userId)
 }
 

@@ -9,59 +9,55 @@ const log = createLogger("ThemeStore")
 const [currentTheme, setCurrentTheme] = createSignal<Theme>(getThemeById(DEFAULT_THEME_ID))
 const [isInitialized, setIsInitialized] = createSignal(false)
 
-export function useTheme() {
-  /**
-   * Load theme preference from settings and apply it
-   */
-  const loadTheme = async (): Promise<void> => {
-    try {
-      const settings = await window.api.settings.getAll()
-      const themeId = settings.themeId || DEFAULT_THEME_ID
+// Load theme preference from settings and apply it
+const loadTheme = async (): Promise<void> => {
+  try {
+    const settings = await window.api.settings.getAll()
+    const themeId = settings.themeId || DEFAULT_THEME_ID
 
-      // Apply theme via manager (sets CSS variables)
-      themeManager.setTheme(themeId)
-      setCurrentTheme(getThemeById(themeId))
-      setIsInitialized(true)
-
-      log.info("Theme loaded:", themeId)
-    } catch (error) {
-      log.error("Failed to load theme:", error)
-      // Fall back to default theme
-      themeManager.setTheme(DEFAULT_THEME_ID)
-      setCurrentTheme(getThemeById(DEFAULT_THEME_ID))
-      setIsInitialized(true)
-    }
-  }
-
-  /**
-   * Change the current theme and persist preference
-   */
-  const changeTheme = async (themeId: string): Promise<void> => {
-    // Apply theme immediately
+    // Apply theme via manager (sets CSS variables)
     themeManager.setTheme(themeId)
     setCurrentTheme(getThemeById(themeId))
+    setIsInitialized(true)
 
-    // Persist to settings
-    try {
-      await window.api.settings.set("themeId", themeId)
-    } catch (error) {
-      log.error("Failed to save theme preference:", error)
-    }
+    log.info("Theme loaded:", themeId)
+  } catch (error) {
+    log.error("Failed to load theme:", error)
+    // Fall back to default theme
+    themeManager.setTheme(DEFAULT_THEME_ID)
+    setCurrentTheme(getThemeById(DEFAULT_THEME_ID))
+    setIsInitialized(true)
   }
+}
 
-  /**
-   * Get an avatar color based on a name hash
-   */
-  const getAvatarColor = (name: string): string => {
-    const theme = currentTheme()
-    const colors = theme.colors.avatarColors
-    let hash = 0
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash)
-    }
-    return colors[Math.abs(hash) % colors.length]
+// Change the current theme and persist preference
+const changeTheme = async (themeId: string): Promise<void> => {
+  // Apply theme immediately
+  themeManager.setTheme(themeId)
+  setCurrentTheme(getThemeById(themeId))
+
+  // Persist to settings
+  try {
+    await window.api.settings.set("themeId", themeId)
+  } catch (error) {
+    log.error("Failed to save theme preference:", error)
   }
+}
 
+// Get an avatar color based on a name hash
+const getAvatarColor = (name: string): string => {
+  const theme = currentTheme()
+  const colors = theme.colors.avatarColors
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return colors[Math.abs(hash) % colors.length]
+}
+
+export { loadTheme }
+
+export function useTheme() {
   return {
     currentTheme,
     isInitialized,

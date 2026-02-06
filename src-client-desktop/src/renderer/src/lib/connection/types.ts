@@ -1,7 +1,6 @@
 import type { ServerInfo } from "../api/types"
 
 export type ConnectionPhase =
-  | "initializing"
   | "disconnected"
   | "connecting"
   | "connected"
@@ -52,7 +51,7 @@ export const DEFAULT_CONNECTION_DETAIL: ConnectionDetail = {
 }
 
 export const DEFAULT_CONNECTION_STATE: ConnectionState = {
-  phase: "initializing",
+  phase: "disconnected",
   server: null,
   userId: null,
   wsConnected: false,

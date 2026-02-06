@@ -1,8 +1,8 @@
 import { TbOutlineArrowLeft } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, Match, Show, Switch } from "solid-js"
+import Button from "../components/shared/Button"
 import { useAuthFlow } from "../stores/auth-flow"
 import { useConnection } from "../stores/connection"
-import Button from "./shared/Button"
 
 const Spinner: Component = () => (
   <div class="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -69,12 +69,89 @@ const AuthView: Component = () => {
 
   const isReauthMode = () => !!connection.currentServer()
 
+  const STEP_ORDER = ["server-url", "email-input", "code-input", "register"] as const
+
+  const steps = () => {
+    const currentStep = authFlow.step()
+    const reauth = isReauthMode()
+
+    const allSteps: { id: string; label: string }[] = reauth
+      ? [
+          { id: "email-input", label: "Sign In" },
+          { id: "code-input", label: "Verify" },
+          { id: "register", label: "Register" }
+        ]
+      : [
+          { id: "server-url", label: "Server" },
+          { id: "email-input", label: "Sign In" },
+          { id: "code-input", label: "Verify" },
+          { id: "register", label: "Register" }
+        ]
+
+    const currentIndex = STEP_ORDER.indexOf(currentStep)
+
+    // Only show register step if we're on it
+    return allSteps
+      .filter((s) => s.id !== "register" || currentStep === "register")
+      .map((s) => {
+        const stepIndex = STEP_ORDER.indexOf(s.id as (typeof STEP_ORDER)[number])
+        return {
+          label: s.label,
+          active: s.id === currentStep,
+          completed: stepIndex < currentIndex
+        }
+      })
+  }
+
+  const serverName = () => authFlow.serverInfo()?.name || connection.currentServer()?.name
+  const serverDisplayUrl = () => authFlow.serverUrl() || connection.currentServer()?.url
+
   return (
     <div class="flex-1 flex items-center justify-center p-4">
-      <div class="bg-surface rounded-lg shadow-xl max-w-md w-full p-6">
-        <h2 class="text-lg font-semibold text-text-primary mb-4">{getTitle()}</h2>
+      <div class="bg-surface rounded-xl shadow-xl max-w-md w-full ring-1 ring-white/8">
+        {/* Server info header — shown after server-url step */}
+        <Show when={authFlow.step() !== "server-url" && serverName()}>
+          <div class="px-6 pt-5 pb-3 border-b border-border">
+            <p class="text-sm font-medium text-text-primary truncate">{serverName()}</p>
+            <p class="text-xs text-text-secondary truncate">{serverDisplayUrl()}</p>
+          </div>
+        </Show>
 
-        <div class="min-h-[200px]">
+        {/* Horizontal step indicator */}
+        <div class="flex items-center gap-3 px-6 py-3">
+          {steps().map((step, i) => (
+            <>
+              <Show when={i > 0}>
+                <div
+                  class={`flex-1 h-px ${step.completed || step.active ? "bg-accent" : "bg-border"}`}
+                />
+              </Show>
+              <div class="flex items-center gap-1.5">
+                <div
+                  class={`w-1.5 h-1.5 rounded-full ${
+                    step.active || step.completed ? "bg-accent" : "bg-border"
+                  }`}
+                />
+                <span
+                  class={`text-xs font-medium ${
+                    step.active
+                      ? "text-text-primary"
+                      : step.completed
+                        ? "text-text-secondary"
+                        : "text-text-muted"
+                  }`}
+                >
+                  {step.label}
+                </span>
+              </div>
+            </>
+          ))}
+        </div>
+
+        {/* Form content */}
+        <div class="px-6 pt-4 pb-6">
+          <h2 class="text-lg font-semibold text-text-primary mb-4">{getTitle()}</h2>
+
           <Switch>
             <Match when={authFlow.step() === "server-url"}>
               <form onSubmit={handleServerSubmit} class="space-y-4">
@@ -107,16 +184,6 @@ const AuthView: Component = () => {
 
             <Match when={authFlow.step() === "email-input"}>
               <form onSubmit={handleEmailSubmit} class="space-y-4">
-                <div class="text-center pb-2 border-b border-border">
-                  <p class="text-sm text-text-secondary">Connecting to</p>
-                  <p class="font-medium text-text-primary">
-                    {authFlow.serverInfo()?.name || connection.currentServer()?.name}
-                  </p>
-                  <p class="text-xs text-text-secondary truncate">
-                    {authFlow.serverUrl() || connection.currentServer()?.url}
-                  </p>
-                </div>
-
                 <p class="text-sm text-text-secondary">
                   Enter your email and we'll send you a login code.
                 </p>

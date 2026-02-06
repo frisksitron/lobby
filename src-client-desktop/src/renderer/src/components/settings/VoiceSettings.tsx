@@ -1,9 +1,7 @@
 import { createMicrophones, createSpeakers } from "@solid-primitives/devices"
-import { type Component, createEffect, For, on } from "solid-js"
+import { type Component, For } from "solid-js"
 import type { NoiseSuppressionAlgorithm } from "../../../../shared/types"
 import { COMMUNICATIONS_DEVICE_PREFIX, DEFAULT_DEVICE_PREFIX } from "../../lib/constants/devices"
-import { webrtcManager } from "../../lib/webrtc"
-import { audioManager } from "../../lib/webrtc/audio"
 import { useSettings } from "../../stores/settings"
 import Toggle from "../shared/Toggle"
 
@@ -60,61 +58,6 @@ const VoiceSettings: Component = () => {
   const microphones = createMicrophones()
   const speakers = createSpeakers()
 
-  createEffect(
-    on(
-      () => settings().noiseSuppression,
-      (algorithm, prev) => {
-        if (algorithm === prev) return
-        webrtcManager.updateNoiseSuppressionSettings(algorithm !== "none", algorithm)
-      },
-      { defer: true }
-    )
-  )
-
-  createEffect(
-    on(
-      () => settings().echoCancellation,
-      (echoCancellation, prev) => {
-        if (echoCancellation === prev) return
-        webrtcManager.restartAudioCapture()
-      },
-      { defer: true }
-    )
-  )
-
-  createEffect(
-    on(
-      () => settings().compressor,
-      (enabled, prev) => {
-        if (enabled === prev) return
-        webrtcManager.updateCompressorSettings(enabled)
-      },
-      { defer: true }
-    )
-  )
-
-  createEffect(
-    on(
-      () => settings().inputDevice,
-      (deviceId, prev) => {
-        if (deviceId === prev) return
-        webrtcManager.restartAudioCapture()
-      },
-      { defer: true }
-    )
-  )
-
-  createEffect(
-    on(
-      () => settings().outputDevice,
-      (deviceId, prev) => {
-        if (deviceId === prev) return
-        audioManager.setOutputDevice(deviceId)
-      },
-      { defer: true }
-    )
-  )
-
   const inputDevices = () => getPhysicalDevices(microphones())
   const outputDevices = () => getPhysicalDevices(speakers())
 
@@ -123,7 +66,7 @@ const VoiceSettings: Component = () => {
       <div class="space-y-4">
         <div>
           <label class="block text-sm font-medium text-text-secondary mb-1">Input Device</label>
-          <div class="border border-border rounded-lg p-1 bg-surface">
+          <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
             <DeviceItem
               label="System default"
               isSelected={settings().inputDevice === "default"}
@@ -143,7 +86,7 @@ const VoiceSettings: Component = () => {
 
         <div>
           <label class="block text-sm font-medium text-text-secondary mb-1">Output Device</label>
-          <div class="border border-border rounded-lg p-1 bg-surface">
+          <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
             <DeviceItem
               label="System default"
               isSelected={settings().outputDevice === "default"}
@@ -165,7 +108,7 @@ const VoiceSettings: Component = () => {
           <label class="block text-sm font-medium text-text-secondary mb-1">
             Noise Suppression
           </label>
-          <div class="border border-border rounded-lg p-1 bg-surface">
+          <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
             <For each={NOISE_SUPPRESSION_OPTIONS}>
               {(option) => (
                 <DeviceItem

@@ -1,4 +1,8 @@
-export { ConnectionService, connectionService } from "./ConnectionService"
+export {
+  ConnectionService,
+  connectionService,
+  type LifecycleEventType
+} from "./ConnectionService"
 export { DEFAULT_RETRY_CONFIG, type RetryConfig, RetryStrategy } from "./RetryStrategy"
 export {
   type ConnectionDetail,

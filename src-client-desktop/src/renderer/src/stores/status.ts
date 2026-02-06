@@ -1,4 +1,4 @@
-import { createSignal, onCleanup } from "solid-js"
+import { createSignal } from "solid-js"
 
 export type StatusType = "voice" | "connection" | "message"
 
@@ -103,11 +103,6 @@ export function getRemainingSeconds(status: ActiveStatus): number | null {
 }
 
 export function useStatus() {
-  // Ensure cleanup on unmount if used in a component
-  onCleanup(() => {
-    // Don't stop the timer on component unmount - statuses should persist
-  })
-
   return {
     activeStatuses,
     hasActiveIssues: () => activeStatuses().length > 0,
@@ -118,5 +113,3 @@ export function useStatus() {
     getRemainingSeconds
   }
 }
-
-export { activeStatuses }

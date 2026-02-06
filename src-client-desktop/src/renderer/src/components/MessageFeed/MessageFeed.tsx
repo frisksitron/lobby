@@ -2,12 +2,13 @@ import {
   type Component,
   createEffect,
   createMemo,
+  createRenderEffect,
   createSignal,
   For,
   onCleanup,
-  onMount,
   Show
 } from "solid-js"
+
 import { useMessages } from "../../stores/messages"
 import { useServers } from "../../stores/servers"
 import { computeMessageGrouping } from "./groupMessages"
@@ -26,8 +27,7 @@ const MessageFeed: Component = () => {
 
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
 
-  const { messages, loadMoreHistory, setupMessageListener, isLoadingHistory, hasMoreHistory } =
-    useMessages()
+  const { messages, loadMoreHistory, isLoadingHistory, hasMoreHistory } = useMessages()
   const { activeServerId } = useServers()
 
   const currentMessages = () => {
@@ -87,13 +87,7 @@ const MessageFeed: Component = () => {
     })
   }
 
-  // Setup message listener on mount
-  onMount(() => {
-    const cleanups = setupMessageListener()
-    onCleanup(() => {
-      for (const fn of cleanups) fn()
-    })
-
+  createRenderEffect(() => {
     // Setup scroll listener
     if (feedRef) {
       feedRef.addEventListener("scroll", handleScroll)
@@ -112,8 +106,7 @@ const MessageFeed: Component = () => {
     }
   })
 
-  // Setup IntersectionObserver for infinite scroll
-  onMount(() => {
+  createRenderEffect(() => {
     if (!sentinelRef) return
 
     const observer = new IntersectionObserver(

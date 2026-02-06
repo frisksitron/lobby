@@ -1,9 +1,9 @@
 import { createSignal } from "solid-js"
-import type { User } from "../../../shared/types"
+import { connectionService } from "../lib/connection"
 import { createLogger } from "../lib/logger"
 import { screenShareManager } from "../lib/webrtc"
 import type { ScreenShareUpdatePayload } from "../lib/ws"
-import { updateUser, users } from "./users"
+import { updateUser } from "./users"
 
 const log = createLogger("ScreenShare")
 
@@ -12,12 +12,6 @@ const [isLocallySharing, setIsLocallySharing] = createSignal(false)
 const [localStream, setLocalStream] = createSignal<MediaStream | null>(null)
 const [viewingStreamerId, setViewingStreamerId] = createSignal<string | null>(null)
 const [remoteStream, setRemoteStream] = createSignal<MediaStream | null>(null)
-
-let getCurrentUserId: () => string | null = () => null
-
-export function initScreenShare(currentUserIdGetter: () => string | null): void {
-  getCurrentUserId = currentUserIdGetter
-}
 
 export function openScreenPicker(): void {
   setIsPickerOpen(true)
@@ -62,8 +56,8 @@ export function unsubscribeFromStream(): void {
   setRemoteStream(null)
 }
 
-export function handleScreenShareUpdate(payload: ScreenShareUpdatePayload): void {
-  const userId = getCurrentUserId()
+function handleScreenShareUpdate(payload: ScreenShareUpdatePayload): void {
+  const userId = connectionService.getUserId()
   updateUser(payload.user_id, { isStreaming: payload.streaming })
 
   // If this is us, update local state
@@ -93,12 +87,8 @@ screenShareManager.onRemoteStream((stream, streamerId) => {
   }
 })
 
-export function getActiveStreamers(): User[] {
-  const userId = getCurrentUserId()
-  return Object.values(users).filter((u) => u.isStreaming && u.id !== userId)
-}
-
-export { isPickerOpen, isLocallySharing, localStream, viewingStreamerId, remoteStream }
+// Subscribe to WS events
+connectionService.on("screen_share_update", handleScreenShareUpdate)
 
 export function useScreenShare() {
   return {

@@ -1,6 +1,6 @@
 import { useSettings } from "../../stores/settings"
 import { createLogger } from "../logger"
-import { getSharedAudioContext } from "./audio-context"
+import { getSharedAudioContext, getSharedAudioContextIfExists } from "./audio-context"
 
 const log = createLogger("Audio")
 
@@ -169,7 +169,8 @@ class AudioManager {
    * Set output device for all audio playback
    */
   setOutputDevice(deviceId: string): void {
-    const ctx = getSharedAudioContext()
+    const ctx = getSharedAudioContextIfExists()
+    if (!ctx) return
     if (!("setSinkId" in ctx)) {
       log.error("setSinkId not supported on this AudioContext")
       return

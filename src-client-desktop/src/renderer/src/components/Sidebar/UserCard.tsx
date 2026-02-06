@@ -74,12 +74,12 @@ const UserCard: Component<UserCardProps> = (props) => {
   const cardStyle = () => {
     if (!props.anchorRect) return {}
 
-    const left = props.anchorRect.left - 280 - 16
+    const left = props.anchorRect.right + 16
     const top = Math.max(8, Math.min(props.anchorRect.top, window.innerHeight - 300))
 
     return {
       position: "fixed" as const,
-      left: `${Math.max(8, left)}px`,
+      left: `${left}px`,
       top: `${top}px`
     }
   }

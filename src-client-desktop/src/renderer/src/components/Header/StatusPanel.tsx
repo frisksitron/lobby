@@ -1,7 +1,7 @@
 import { TbOutlineAlertTriangle, TbOutlineX } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import type { ActiveStatus } from "../../stores/status"
-import { activeStatuses, clearStatus, getRemainingSeconds, useStatus } from "../../stores/status"
+import { clearStatus, getRemainingSeconds, useStatus } from "../../stores/status"
 
 interface StatusItemProps {
   status: ActiveStatus
@@ -56,7 +56,7 @@ interface StatusPanelProps {
 }
 
 const StatusPanel: Component<StatusPanelProps> = (props) => {
-  const { hasActiveIssues } = useStatus()
+  const { hasActiveIssues, activeStatuses } = useStatus()
 
   // Close on escape key
   const handleKeyDown = (e: KeyboardEvent) => {

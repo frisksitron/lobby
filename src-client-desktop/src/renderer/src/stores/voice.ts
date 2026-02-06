@@ -1,12 +1,20 @@
-import { createSignal } from "solid-js"
+import { createEffect, createRoot, createSignal, on } from "solid-js"
 import type { LocalVoiceState } from "../../../shared/types"
+import { connectionService } from "../lib/connection"
 import { ERROR_CODES, getErrorMessage } from "../lib/errors/user-messages"
 import { createLogger } from "../lib/logger"
 import { playSound } from "../lib/sounds"
 import { audioManager, webrtcManager } from "../lib/webrtc"
 import type { WebRTCError } from "../lib/webrtc/manager"
-import type { RtcReadyPayload, VoiceSpeakingPayload } from "../lib/ws"
+import type {
+  ErrorPayload,
+  RtcReadyPayload,
+  VoiceSpeakingPayload,
+  VoiceStateUpdatePayload
+} from "../lib/ws"
 import { wsManager } from "../lib/ws"
+import { stopScreenShare } from "./screen-share"
+import { useSettings } from "./settings"
 import { clearStatus, setStatus } from "./status"
 import { updateUser, users } from "./users"
 
@@ -19,38 +27,22 @@ const [localVoice, setLocalVoice] = createSignal<LocalVoiceState>({
   deafened: false
 })
 
-// Reconnection state
-let wasInVoice = false
-let voiceStateBeforeDisconnect = { muted: false, deafened: false }
-
 // Confirmed state from server (for cooldown recovery)
-let confirmedMuted = false
-let confirmedDeafened = false
+const [confirmedState, setConfirmedState] = createSignal({ muted: false, deafened: false })
 
-let getCurrentUserId: () => string | null = () => null
-let getSessionStatus: () => string | null = () => null
-let stopScreenShareFn: (() => void) | null = null
+// Reconnection state
+const [reconnectState, setReconnectState] = createSignal({
+  wasInVoice: false,
+  muted: false,
+  deafened: false
+})
 
-export function initVoice(
-  currentUserIdGetter: () => string | null,
-  sessionStatusGetter: () => string | null,
-  stopScreenShare: () => void
-): void {
-  getCurrentUserId = currentUserIdGetter
-  getSessionStatus = sessionStatusGetter
-  stopScreenShareFn = stopScreenShare
+// Set up WebRTC error handling
+webrtcManager.onError(handleWebRTCError)
 
-  // Set up WebRTC error handling
-  webrtcManager.onError(handleWebRTCError)
-}
-
-/**
- * Handle WebRTC errors and surface them to the status panel
- */
 function handleWebRTCError(error: WebRTCError): void {
   log.error("WebRTC error:", error.code, error.message)
 
-  // Map WebRTC error codes to status codes
   const statusCodeMap: Record<string, string> = {
     media_permission_denied: ERROR_CODES.MEDIA_PERMISSION_DENIED,
     no_device: ERROR_CODES.NO_DEVICE,
@@ -64,16 +56,9 @@ function handleWebRTCError(error: WebRTCError): void {
   const statusCode = statusCodeMap[error.code] || `webrtc.${error.code}`
   const message = getErrorMessage(statusCode)
 
-  setStatus({
-    type: "voice",
-    code: statusCode,
-    message
-  })
+  setStatus({ type: "voice", code: statusCode, message })
 }
 
-/**
- * Clear all voice-related error statuses (called on successful voice join)
- */
 function clearVoiceErrors(): void {
   clearStatus(ERROR_CODES.MEDIA_PERMISSION_DENIED)
   clearStatus(ERROR_CODES.NO_DEVICE)
@@ -84,13 +69,8 @@ function clearVoiceErrors(): void {
   clearStatus(ERROR_CODES.OFFER_TIMEOUT)
 }
 
-export function handleVoiceStateUpdate(payload: {
-  user_id: string
-  in_voice: boolean
-  muted: boolean
-  deafened: boolean
-}): void {
-  const userId = getCurrentUserId()
+function handleVoiceStateUpdate(payload: VoiceStateUpdatePayload): void {
+  const userId = connectionService.getUserId()
   const isCurrentUser = userId && payload.user_id === userId
   const previousUser = users[payload.user_id]
   const wasInVoiceChannel = previousUser?.inVoice ?? false
@@ -110,11 +90,9 @@ export function handleVoiceStateUpdate(payload: {
   })
 
   if (isCurrentUser) {
-    confirmedMuted = payload.muted
-    confirmedDeafened = payload.deafened
+    setConfirmedState({ muted: payload.muted, deafened: payload.deafened })
 
     if (payload.in_voice) {
-      // If connecting, preserve connecting state - handleRtcReady will set inVoice
       if (voice.connecting) {
         setLocalVoice((prev) => ({
           ...prev,
@@ -122,7 +100,6 @@ export function handleVoiceStateUpdate(payload: {
           deafened: payload.deafened
         }))
       } else {
-        // Not connecting, set full state (e.g., server-initiated state change)
         setLocalVoice((prev) => ({
           ...prev,
           inVoice: true,
@@ -131,7 +108,6 @@ export function handleVoiceStateUpdate(payload: {
         }))
       }
     } else {
-      // Server says we're not in voice - reset everything
       setLocalVoice({
         connecting: false,
         inVoice: false,
@@ -146,7 +122,7 @@ export function handleVoiceStateUpdate(payload: {
   }
 }
 
-export async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
+async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
   log.info("RTC ready, starting WebRTC")
 
   const iceServers: RTCIceServer[] = (payload.ice_servers ?? []).map((server) => ({
@@ -155,18 +131,16 @@ export async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
     credential: server.credential
   }))
 
-  const userId = getCurrentUserId()
+  const userId = connectionService.getUserId()
   const voice = localVoice()
 
   try {
     await webrtcManager.start(iceServers)
 
-    // Apply initial mute/deafen state now that streams are ready
     if (voice.muted || voice.deafened) {
       webrtcManager.setVoiceState(voice.muted, voice.deafened)
     }
 
-    // Now mark as fully connected - clear any previous voice errors
     clearVoiceErrors()
     playSound("user-join")
     setLocalVoice((prev) => ({ ...prev, connecting: false, inVoice: true }))
@@ -180,7 +154,7 @@ export async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
     }
 
     webrtcManager.onSpeaking((speaking) => {
-      const id = getCurrentUserId()
+      const id = connectionService.getUserId()
       if (id) {
         updateUser(id, { voiceSpeaking: speaking })
       }
@@ -191,30 +165,23 @@ export async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
   }
 }
 
-export function handleVoiceSpeaking(payload: VoiceSpeakingPayload): void {
+function handleVoiceSpeaking(payload: VoiceSpeakingPayload): void {
   updateUser(payload.user_id, { voiceSpeaking: payload.speaking })
 }
 
-export function handleVoiceStateCooldown(): void {
-  const userId = getCurrentUserId()
+function handleVoiceStateCooldown(): void {
+  const userId = connectionService.getUserId()
   if (userId) {
-    setLocalVoice((prev) => ({
-      ...prev,
-      muted: confirmedMuted,
-      deafened: confirmedDeafened
-    }))
-    updateUser(userId, {
-      voiceMuted: confirmedMuted,
-      voiceDeafened: confirmedDeafened
-    })
-    // Rollback WebRTC audio state to match confirmed server state
-    webrtcManager.setMuted(confirmedMuted, false)
-    webrtcManager.setDeafened(confirmedDeafened, false)
+    const { muted, deafened } = confirmedState()
+    setLocalVoice((prev) => ({ ...prev, muted, deafened }))
+    updateUser(userId, { voiceMuted: muted, voiceDeafened: deafened })
+    webrtcManager.setMuted(muted, false)
+    webrtcManager.setDeafened(deafened, false)
   }
 }
 
-export function handleVoiceJoinCooldown(): void {
-  const userId = getCurrentUserId()
+function handleVoiceJoinCooldown(): void {
+  const userId = connectionService.getUserId()
   if (userId) {
     setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
     updateUser(userId, {
@@ -226,7 +193,29 @@ export function handleVoiceJoinCooldown(): void {
   }
 }
 
-export function stopVoice(): void {
+function handleServerError(payload: ErrorPayload): void {
+  if (payload.code === "VOICE_STATE_COOLDOWN") {
+    handleVoiceStateCooldown()
+    const expiresAt = payload.retry_after ?? Date.now() + 10_000
+    setStatus({
+      type: "voice",
+      code: ERROR_CODES.VOICE_COOLDOWN,
+      message: getErrorMessage(ERROR_CODES.VOICE_COOLDOWN),
+      expiresAt
+    })
+  } else if (payload.code === "VOICE_JOIN_COOLDOWN") {
+    handleVoiceJoinCooldown()
+    const expiresAt = payload.retry_after ?? Date.now() + 15_000
+    setStatus({
+      type: "voice",
+      code: ERROR_CODES.VOICE_JOIN_COOLDOWN,
+      message: getErrorMessage(ERROR_CODES.VOICE_JOIN_COOLDOWN),
+      expiresAt
+    })
+  }
+}
+
+function stopVoice(): void {
   const voice = localVoice()
   if (voice.inVoice || voice.connecting) {
     webrtcManager.stop()
@@ -234,31 +223,28 @@ export function stopVoice(): void {
   }
 }
 
-export function joinVoice(): void {
-  const userId = getCurrentUserId()
-  if (!userId || getSessionStatus() !== "connected") return
+function joinVoice(): void {
+  const userId = connectionService.getUserId()
+  if (!userId || connectionService.getSession()?.status !== "connected") return
 
   setLocalVoice({ connecting: true, inVoice: false, muted: false, deafened: false })
   wsManager.joinVoice(false, false)
 }
 
-export function rejoinVoice(muted: boolean, deafened: boolean): void {
-  const userId = getCurrentUserId()
+function rejoinVoice(muted: boolean, deafened: boolean): void {
+  const userId = connectionService.getUserId()
   if (!userId) return
 
   setLocalVoice({ connecting: true, inVoice: false, muted, deafened })
   wsManager.joinVoice(muted, deafened)
 }
 
-export function leaveVoice(): void {
-  // Stop screen share if active
-  if (stopScreenShareFn) {
-    stopScreenShareFn()
-  }
+function leaveVoice(): void {
+  stopScreenShare()
 
   setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
 
-  const userId = getCurrentUserId()
+  const userId = connectionService.getUserId()
   if (userId) {
     updateUser(userId, {
       inVoice: false,
@@ -273,8 +259,8 @@ export function leaveVoice(): void {
   webrtcManager.stop()
 }
 
-export function toggleMute(): void {
-  const userId = getCurrentUserId()
+function toggleMute(): void {
+  const userId = connectionService.getUserId()
   const voice = localVoice()
   if (!voice.inVoice || !userId) return
 
@@ -297,8 +283,8 @@ export function toggleMute(): void {
   }
 }
 
-export function toggleDeafen(): void {
-  const userId = getCurrentUserId()
+function toggleDeafen(): void {
+  const userId = connectionService.getUserId()
   const voice = localVoice()
   if (!voice.inVoice || !userId) return
 
@@ -316,27 +302,96 @@ export function toggleDeafen(): void {
   }
 }
 
-export function saveVoiceStateForReconnect(): void {
+function saveVoiceStateForReconnect(): void {
   const voiceState = localVoice()
   if (voiceState.inVoice) {
-    wasInVoice = true
-    voiceStateBeforeDisconnect = { muted: voiceState.muted, deafened: voiceState.deafened }
+    setReconnectState({ wasInVoice: true, muted: voiceState.muted, deafened: voiceState.deafened })
   }
 }
 
-export function restoreVoiceAfterReconnect(): void {
-  if (wasInVoice) {
-    wasInVoice = false
-    const { muted, deafened } = voiceStateBeforeDisconnect
-    rejoinVoice(muted, deafened)
+function restoreVoiceAfterReconnect(): void {
+  const state = reconnectState()
+  if (state.wasInVoice) {
+    setReconnectState({ wasInVoice: false, muted: false, deafened: false })
+    rejoinVoice(state.muted, state.deafened)
   }
 }
 
-export function resetVoiceReconnectState(): void {
-  wasInVoice = false
+function resetVoiceReconnectState(): void {
+  setReconnectState({ wasInVoice: false, muted: false, deafened: false })
 }
 
-export { localVoice }
+// Subscribe to WS events
+connectionService.on("voice_state_update", handleVoiceStateUpdate)
+connectionService.on("rtc_ready", handleRtcReady)
+connectionService.on("voice_speaking", handleVoiceSpeaking)
+connectionService.on("server_error", handleServerError)
+
+// Subscribe to lifecycle events
+connectionService.onLifecycle("voice_save", saveVoiceStateForReconnect)
+connectionService.onLifecycle("voice_restore", restoreVoiceAfterReconnect)
+connectionService.onLifecycle("voice_reset", resetVoiceReconnectState)
+connectionService.onLifecycle("voice_stop", stopVoice)
+
+// Settings effects — apply audio settings globally regardless of VoiceSettings mount state
+createRoot(() => {
+  const { settings } = useSettings()
+
+  createEffect(
+    on(
+      () => settings().noiseSuppression,
+      (algorithm, prev) => {
+        if (algorithm === prev) return
+        webrtcManager.updateNoiseSuppressionSettings(algorithm !== "none", algorithm)
+      },
+      { defer: true }
+    )
+  )
+
+  createEffect(
+    on(
+      () => settings().echoCancellation,
+      (echoCancellation, prev) => {
+        if (echoCancellation === prev) return
+        webrtcManager.restartAudioCapture()
+      },
+      { defer: true }
+    )
+  )
+
+  createEffect(
+    on(
+      () => settings().compressor,
+      (enabled, prev) => {
+        if (enabled === prev) return
+        webrtcManager.updateCompressorSettings(enabled)
+      },
+      { defer: true }
+    )
+  )
+
+  createEffect(
+    on(
+      () => settings().inputDevice,
+      (deviceId, prev) => {
+        if (deviceId === prev) return
+        webrtcManager.restartAudioCapture()
+      },
+      { defer: true }
+    )
+  )
+
+  createEffect(
+    on(
+      () => settings().outputDevice,
+      (deviceId, prev) => {
+        if (deviceId === prev) return
+        audioManager.setOutputDevice(deviceId)
+      },
+      { defer: true }
+    )
+  )
+})
 
 export function useVoice() {
   return {

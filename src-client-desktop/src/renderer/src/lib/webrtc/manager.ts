@@ -216,6 +216,7 @@ class WebRTCManager {
    * Stop WebRTC connection
    */
   stop(): void {
+    if (this.state === "disconnected" && !this.localStream && !this.peerConnection) return
     log.info("Stopping...")
 
     // Clean up screen share first

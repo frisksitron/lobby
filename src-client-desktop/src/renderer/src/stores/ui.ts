@@ -1,7 +1,5 @@
 import { createSignal } from "solid-js"
 
-export type ModalType = "settings" | "server-settings" | null
-
 export interface ConfirmDialogConfig {
   title: string
   message: string
@@ -11,16 +9,11 @@ export interface ConfirmDialogConfig {
   onConfirm: () => void
 }
 
-const [activeModal, setActiveModal] = createSignal<ModalType>(null)
 const [serverDropdownOpen, setServerDropdownOpen] = createSignal(false)
 const [confirmDialog, setConfirmDialog] = createSignal<ConfirmDialogConfig | null>(null)
 
 export function useUI() {
   return {
-    activeModal,
-    openModal: (modal: ModalType) => setActiveModal(modal),
-    closeModal: () => setActiveModal(null),
-
     serverDropdownOpen,
     toggleServerDropdown: () => setServerDropdownOpen((prev) => !prev),
     closeServerDropdown: () => setServerDropdownOpen(false),

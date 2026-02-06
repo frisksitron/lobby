@@ -1,12 +1,12 @@
 import { TbOutlineAlertTriangle, TbOutlineWifiOff } from "solid-icons/tb"
 import { type Component, Match, Show, Switch } from "solid-js"
+import Button from "../components/shared/Button"
 import {
   CONNECTION_MESSAGES,
   CONNECTION_STATUS,
   type ConnectionStatusInfo
 } from "../lib/constants/connection"
 import { useConnection } from "../stores/connection"
-import Button from "./shared/Button"
 
 const Spinner: Component = () => (
   <div class="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />

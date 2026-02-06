@@ -1,9 +1,11 @@
 import { createMemo, createResource, createRoot, createSignal } from "solid-js"
 import type { Message } from "../../../shared/types"
 import { apiRequest, apiRequestCurrentServer } from "../lib/api/client"
+import { connectionService } from "../lib/connection"
 import { createLogger } from "../lib/logger"
-import { type ErrorPayload, type MessageCreatePayload, wsManager } from "../lib/ws"
-import { connectionVersion, getCurrentUser, getServerUrl } from "./connection"
+import type { ErrorPayload, MessageCreatePayload } from "../lib/ws"
+import { wsManager } from "../lib/ws"
+import { users } from "./users"
 
 const log = createLogger("Messages")
 
@@ -33,8 +35,8 @@ function toMessage(msg: MessageResponse): Message {
 const [initialMessages] = createRoot(() =>
   createResource(
     () => {
-      const url = getServerUrl()
-      const version = connectionVersion()
+      const url = connectionService.getServerUrl()
+      const version = connectionService.getConnectionVersion()
       return url ? { url, version } : null
     },
     async (source) => {
@@ -105,74 +107,72 @@ function generateNonce(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
 }
 
-function setupMessageListener(): (() => void)[] {
-  const unsubError = wsManager.on("server_error", (payload: ErrorPayload) => {
-    if (payload.code !== "RATE_LIMITED" || !payload.nonce) return
+// Module-level event subscriptions
+connectionService.on("server_error", (payload: ErrorPayload) => {
+  if (payload.code !== "RATE_LIMITED" || !payload.nonce) return
 
-    const pending = pendingMessages.get(payload.nonce)
-    if (pending) {
-      const timeout = pendingTimeouts.get(payload.nonce)
-      if (timeout) {
-        clearTimeout(timeout)
-        pendingTimeouts.delete(payload.nonce)
-      }
-      pendingMessages.delete(payload.nonce)
-      setRealtimeMessages((prev) => prev.filter((msg) => msg.id !== pending.id))
+  const pending = pendingMessages.get(payload.nonce)
+  if (pending) {
+    const timeout = pendingTimeouts.get(payload.nonce)
+    if (timeout) {
+      clearTimeout(timeout)
+      pendingTimeouts.delete(payload.nonce)
     }
-  })
+    pendingMessages.delete(payload.nonce)
+    setRealtimeMessages((prev) => prev.filter((msg) => msg.id !== pending.id))
+  }
+})
 
-  const unsubMessage = wsManager.on("message_create", (payload: MessageCreatePayload) => {
-    if (payload.nonce && pendingMessages.has(payload.nonce)) {
-      const timeout = pendingTimeouts.get(payload.nonce)
-      if (timeout) {
-        clearTimeout(timeout)
-        pendingTimeouts.delete(payload.nonce)
-      }
+connectionService.on("message_create", (payload: MessageCreatePayload) => {
+  if (payload.nonce && pendingMessages.has(payload.nonce)) {
+    const timeout = pendingTimeouts.get(payload.nonce)
+    if (timeout) {
+      clearTimeout(timeout)
+      pendingTimeouts.delete(payload.nonce)
+    }
 
-      const pendingMsg = pendingMessages.get(payload.nonce)
-      if (!pendingMsg) return
-      pendingMessages.delete(payload.nonce)
+    const pendingMsg = pendingMessages.get(payload.nonce)
+    if (!pendingMsg) return
+    pendingMessages.delete(payload.nonce)
 
-      setRealtimeMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === pendingMsg.id
-            ? {
-                ...msg,
-                id: payload.id,
-                timestamp: payload.created_at
-              }
-            : msg
-        )
+    setRealtimeMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === pendingMsg.id
+          ? {
+              ...msg,
+              id: payload.id,
+              timestamp: payload.created_at
+            }
+          : msg
       )
-      return
-    }
+    )
+    return
+  }
 
-    const newMessage: Message = {
-      id: payload.id,
-      serverId: "",
-      authorId: payload.author.id,
-      authorName: payload.author.username ?? "Unknown",
-      authorAvatarUrl: payload.author.avatar_url,
-      content: payload.content,
-      timestamp: payload.created_at
-    }
+  const newMessage: Message = {
+    id: payload.id,
+    serverId: "",
+    authorId: payload.author.id,
+    authorName: payload.author.username ?? "Unknown",
+    authorAvatarUrl: payload.author.avatar_url,
+    content: payload.content,
+    timestamp: payload.created_at
+  }
 
-    // Check if message already exists in any source
-    const existing = allMessages().some((m) => m.id === payload.id)
-    if (!existing) {
-      setRealtimeMessages((prev) => [...prev, newMessage])
-    }
-  })
-
-  return [unsubError, unsubMessage]
-}
+  // Check if message already exists in any source
+  const existing = allMessages().some((m) => m.id === payload.id)
+  if (!existing) {
+    setRealtimeMessages((prev) => [...prev, newMessage])
+  }
+})
 
 function getMessagesForServer(_serverId: string): Message[] {
   return allMessages()
 }
 
 function sendMessage(serverId: string, content: string): void {
-  const currentUserValue = getCurrentUser()
+  const userId = connectionService.getUserId()
+  const currentUserValue = userId ? users[userId] : null
   if (!currentUserValue || !content.trim()) return
 
   const nonce = generateNonce()
@@ -205,7 +205,7 @@ function sendMessage(serverId: string, content: string): void {
 }
 
 async function loadMoreHistory(beforeId: string, limit: number = 50): Promise<number> {
-  const url = getServerUrl()
+  const url = connectionService.getServerUrl()
   if (!url) return 0
 
   setIsLoadingHistory(true)
@@ -258,7 +258,6 @@ export function useMessages() {
     getMessagesForServer,
     sendMessage,
     loadMoreHistory,
-    clearMessages,
-    setupMessageListener
+    clearMessages
   }
 }

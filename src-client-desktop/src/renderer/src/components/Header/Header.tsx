@@ -1,22 +1,22 @@
-import { TbOutlineAlertTriangle, TbOutlineSettings, TbOutlineUser } from "solid-icons/tb"
+import { useLocation, useNavigate } from "@solidjs/router"
+import { TbOutlineAlertTriangle, TbOutlineSettings, TbOutlineX } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, onCleanup, Show } from "solid-js"
-import { useConnection } from "../../stores/connection"
 import { useServers } from "../../stores/servers"
 import { useStatus } from "../../stores/status"
-import { useUI } from "../../stores/ui"
 import ButtonWithIcon from "../shared/ButtonWithIcon"
 import ServerDropdown from "./ServerDropdown"
 import StatusPanel from "./StatusPanel"
 
+const linkClass =
+  "flex items-center gap-2 transition-colors duration-150 cursor-pointer text-text-secondary hover:text-text-primary hover:bg-surface-elevated px-3 py-2 text-sm rounded"
+
 const Header: Component = () => {
-  const { openModal } = useUI()
-  const { isConnected } = useConnection()
+  const location = useLocation()
+  const navigate = useNavigate()
   const { activeServerId } = useServers()
   const { hasActiveIssues } = useStatus()
+  const isOnSettings = () => location.pathname.startsWith("/settings")
   const [statusPanelOpen, setStatusPanelOpen] = createSignal(false)
-
-  // Only show Account button when authenticated and a server is selected
-  const canShowAccount = () => isConnected() && activeServerId()
 
   // Close panel when clicking outside
   const handleClickOutside = (e: MouseEvent) => {
@@ -50,18 +50,15 @@ const Header: Component = () => {
             </Show>
           </div>
         </Show>
-        <Show when={canShowAccount()}>
-          <ButtonWithIcon
-            icon={<TbOutlineUser class="w-5 h-5" />}
-            label="Account"
-            onClick={() => openModal("server-settings")}
-          />
-        </Show>
-        <ButtonWithIcon
-          icon={<TbOutlineSettings class="w-5 h-5" />}
-          label="Settings"
-          onClick={() => openModal("settings")}
-        />
+        <button
+          type="button"
+          onClick={() => navigate(isOnSettings() ? `/server/${activeServerId()}` : "/settings")}
+          class={`${linkClass} ${isOnSettings() ? "bg-surface-elevated text-text-primary" : ""}`}
+          title="Settings"
+        >
+          {isOnSettings() ? <TbOutlineX class="w-5 h-5" /> : <TbOutlineSettings class="w-5 h-5" />}
+          <span>Settings</span>
+        </button>
       </div>
     </header>
   )

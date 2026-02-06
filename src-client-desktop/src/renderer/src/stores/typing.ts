@@ -1,28 +1,15 @@
 import { createSignal } from "solid-js"
 import type { TypingUser } from "../../../shared/types"
+import { connectionService } from "../lib/connection"
 import { TYPING_TIMEOUT_MS } from "../lib/constants/ui"
+import type { TypingStartPayload, TypingStopPayload } from "../lib/ws"
 import { wsManager } from "../lib/ws"
 
 const [typingUsers, setTypingUsers] = createSignal<TypingUser[]>([])
 const typingTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
-let getCurrentUserId: () => string | null = () => null
-let getSessionStatus: () => string | null = () => null
-
-export function initTyping(
-  currentUserIdGetter: () => string | null,
-  sessionStatusGetter: () => string | null
-): void {
-  getCurrentUserId = currentUserIdGetter
-  getSessionStatus = sessionStatusGetter
-}
-
-export function handleTypingStart(payload: {
-  user_id: string
-  username: string
-  timestamp: string
-}): void {
-  const userId = getCurrentUserId()
+function handleTypingStart(payload: TypingStartPayload): void {
+  const userId = connectionService.getUserId()
   if (userId && payload.user_id === userId) return
 
   const existing = typingTimeouts.get(payload.user_id)
@@ -45,7 +32,7 @@ export function handleTypingStart(payload: {
   )
 }
 
-export function handleTypingStop(payload: { user_id: string }): void {
+function handleTypingStop(payload: TypingStopPayload): void {
   const timeout = typingTimeouts.get(payload.user_id)
   if (timeout) {
     clearTimeout(timeout)
@@ -54,19 +41,22 @@ export function handleTypingStop(payload: { user_id: string }): void {
   setTypingUsers((prev) => prev.filter((u) => u.userId !== payload.user_id))
 }
 
-export function clearTypingUsers(): void {
+function clearTypingUsers(): void {
   for (const timeout of typingTimeouts.values()) clearTimeout(timeout)
   typingTimeouts.clear()
   setTypingUsers([])
 }
 
-export function sendTyping(): void {
-  if (getSessionStatus() === "connected") {
+function sendTyping(): void {
+  if (connectionService.getSession()?.status === "connected") {
     wsManager.sendTyping()
   }
 }
 
-export { typingUsers }
+// Subscribe to events
+connectionService.on("typing_start", handleTypingStart)
+connectionService.on("typing_stop", handleTypingStop)
+connectionService.onLifecycle("typing_clear", clearTypingUsers)
 
 export function useTyping() {
   return {

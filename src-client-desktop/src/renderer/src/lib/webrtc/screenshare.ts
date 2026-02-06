@@ -160,17 +160,10 @@ class ScreenShareManager {
     wsManager.stopScreenShare()
 
     // Replace with null - keeps sender/transceiver intact for reuse
+    // Direction stays sendrecv to avoid onnegotiationneeded firing,
+    // which would cause a DTLS role conflict (client offer vs server-established roles)
     if (this.videoSender) {
       this.videoSender.replaceTrack(null)
-
-      // Reset transceiver direction since we're no longer sending
-      const transceivers = this.peerConnection?.getTransceivers() ?? []
-      for (const transceiver of transceivers) {
-        if (transceiver.sender === this.videoSender) {
-          transceiver.direction = "recvonly"
-          break
-        }
-      }
     }
 
     this.localVideoTrack.stop()

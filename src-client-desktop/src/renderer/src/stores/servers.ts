@@ -1,25 +1,13 @@
-import { createRoot, createSignal, useTransition } from "solid-js"
+import { createSignal } from "solid-js"
 import type { Server } from "../../../shared/types"
+import { connectionService } from "../lib/connection"
 import { createLogger } from "../lib/logger"
 
 const log = createLogger("Servers")
 
 const [servers, setServers] = createSignal<Server[]>([])
-const [isServerSwitching, startServerTransition] = createRoot(() => useTransition())
 
-let connectToServerFn: ((serverId: string) => Promise<boolean>) | null = null
-let disconnectFn: (() => Promise<void>) | null = null
-let getCurrentServerId: () => string | null = () => null
-
-export function initServers(
-  connectToServer: (serverId: string) => Promise<boolean>,
-  disconnect: () => Promise<void>,
-  currentServerIdGetter: () => string | null
-): void {
-  connectToServerFn = connectToServer
-  disconnectFn = disconnect
-  getCurrentServerId = currentServerIdGetter
-}
+export { servers }
 
 export async function loadServers(): Promise<void> {
   try {
@@ -66,41 +54,23 @@ export async function addServerEntry(serverInfo: {
   })
 }
 
-export function setActiveServer(serverId: string): void {
-  if (getCurrentServerId() === serverId) return
-  if (!connectToServerFn) return
-
-  const connectFn = connectToServerFn
-  startServerTransition(async () => {
-    await window.api.settings.set("lastActiveServerId", serverId)
-    await connectFn(serverId)
-  })
-}
-
-export async function leaveServer(serverId: string): Promise<void> {
+export async function leaveServer(serverId: string): Promise<string | null> {
   const currentServers = servers()
   const newServers = currentServers.filter((s) => s.id !== serverId)
   setServers(newServers)
   await window.api.servers.remove(serverId)
 
-  if (getCurrentServerId() === serverId) {
-    if (newServers.length > 0) {
-      setActiveServer(newServers[0].id)
-    } else if (disconnectFn) {
-      await disconnectFn()
-    }
+  if (connectionService.getServer()?.id === serverId) {
+    return newServers.length > 0 ? newServers[0].id : null
   }
+  return connectionService.getServer()?.id ?? null
 }
-
-export { servers, isServerSwitching }
 
 export function useServers() {
   return {
     servers,
-    activeServerId: () => getCurrentServerId() ?? "",
-    activeServer: () => servers().find((s) => s.id === getCurrentServerId()),
-    setActiveServer,
-    leaveServer,
-    isServerSwitching
+    activeServerId: () => connectionService.getServer()?.id ?? "",
+    activeServer: () => servers().find((s) => s.id === connectionService.getServer()?.id),
+    leaveServer
   }
 }
