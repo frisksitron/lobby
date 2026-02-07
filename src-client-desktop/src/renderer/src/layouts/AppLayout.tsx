@@ -3,12 +3,15 @@ import { Show } from "solid-js"
 import Header from "../components/Header/Header"
 import { ScreenPicker } from "../components/ScreenPicker"
 import ConfirmDialog from "../components/shared/ConfirmDialog"
+import UpdateBanner from "../components/UpdateBanner"
 import { useScreenShare } from "../stores/screen-share"
 import { useUI } from "../stores/ui"
+import { useUpdater } from "../stores/updater"
 
 const AppLayout = (props: RouteSectionProps) => {
   const { serverDropdownOpen, closeServerDropdown, confirmDialog, closeConfirmDialog } = useUI()
   const { isPickerOpen, closeScreenPicker, startScreenShare } = useScreenShare()
+  const { updateReady } = useUpdater()
 
   const handleMainClick = () => {
     if (serverDropdownOpen()) {
@@ -18,6 +21,9 @@ const AppLayout = (props: RouteSectionProps) => {
 
   return (
     <div class="h-screen flex flex-col bg-background" onClick={handleMainClick}>
+      <Show when={updateReady()}>
+        <UpdateBanner />
+      </Show>
       <Header />
 
       <div class="flex-1 flex overflow-hidden">{props.children}</div>
