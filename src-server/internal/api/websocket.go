@@ -12,25 +12,31 @@ import (
 	"lobby/internal/ws"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
-
 type WebSocketHandler struct {
 	hub        *ws.Hub
 	jwtService *auth.JWTService
 	userRepo   *db.UserRepository
+	upgrader   websocket.Upgrader
 }
 
-func NewWebSocketHandler(hub *ws.Hub, jwtService *auth.JWTService, userRepo *db.UserRepository) *WebSocketHandler {
+func NewWebSocketHandler(hub *ws.Hub, jwtService *auth.JWTService, userRepo *db.UserRepository, allowedOrigins []string) *WebSocketHandler {
+	allowed := make(map[string]bool, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = true
+	}
+
 	return &WebSocketHandler{
 		hub:        hub,
 		jwtService: jwtService,
 		userRepo:   userRepo,
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				return allowed[origin]
+			},
+		},
 	}
 }
 
@@ -55,7 +61,7 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
 		return

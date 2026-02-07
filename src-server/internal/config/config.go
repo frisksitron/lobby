@@ -31,10 +31,11 @@ type TURNConfig struct {
 }
 
 type ServerConfig struct {
-	Name    string `yaml:"name"`
-	Host    string `yaml:"host"`
-	Port    int    `yaml:"port"`
-	BaseURL string `yaml:"base_url"`
+	Name           string   `yaml:"name"`
+	Host           string   `yaml:"host"`
+	Port           int      `yaml:"port"`
+	BaseURL        string   `yaml:"base_url"`
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type DatabaseConfig struct {
@@ -71,6 +72,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
 
+	cfg.applyEnvOverrides()
+
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("validating config: %w", err)
 	}
@@ -78,6 +81,18 @@ func Load(path string) (*Config, error) {
 	cfg.setDefaults()
 
 	return &cfg, nil
+}
+
+func (c *Config) applyEnvOverrides() {
+	if v := os.Getenv("LOBBY_JWT_SECRET"); v != "" {
+		c.Auth.JWTSecret = v
+	}
+	if v := os.Getenv("LOBBY_SMTP_PASSWORD"); v != "" {
+		c.Email.SMTP.Password = v
+	}
+	if v := os.Getenv("LOBBY_TURN_SECRET"); v != "" {
+		c.SFU.TURN.Secret = v
+	}
 }
 
 func (c *Config) validate() error {
@@ -111,6 +126,9 @@ func (c *Config) setDefaults() {
 	}
 	if c.Server.BaseURL == "" {
 		c.Server.BaseURL = fmt.Sprintf("http://%s:%d", c.Server.Host, c.Server.Port)
+	}
+	if len(c.Server.AllowedOrigins) == 0 {
+		c.Server.AllowedOrigins = []string{c.Server.BaseURL}
 	}
 	if c.Database.Path == "" {
 		c.Database.Path = "./data/lobby.db"

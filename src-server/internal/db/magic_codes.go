@@ -63,17 +63,21 @@ func (r *MagicCodeRepository) FindByEmailAndCode(email, code string) (*models.Ma
 	return &mc, nil
 }
 
-// IncrementAttempts atomically increments the attempt count and returns the new value.
-func (r *MagicCodeRepository) IncrementAttempts(id string) (int, error) {
-	_, err := r.db.Exec(`UPDATE magic_codes SET attempts = attempts + 1 WHERE id = ?`, id)
+// IncrementAttempts atomically increments the attempt count only if it is
+// below max, and returns the new value. Returns -1 if the code was already
+// at or above the limit (no update performed).
+func (r *MagicCodeRepository) IncrementAttempts(id string, max int) (int, error) {
+	var attempts int
+	err := r.db.QueryRow(
+		`UPDATE magic_codes SET attempts = attempts + 1 WHERE id = ? AND attempts < ? RETURNING attempts`,
+		id, max,
+	).Scan(&attempts)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return -1, nil
+	}
 	if err != nil {
 		return 0, fmt.Errorf("incrementing attempts: %w", err)
-	}
-
-	var attempts int
-	err = r.db.QueryRow(`SELECT attempts FROM magic_codes WHERE id = ?`, id).Scan(&attempts)
-	if err != nil {
-		return 0, fmt.Errorf("reading attempts: %w", err)
 	}
 
 	return attempts, nil

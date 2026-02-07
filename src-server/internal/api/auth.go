@@ -56,6 +56,7 @@ type MagicCodeResponse struct {
 func (h *AuthHandler) RequestMagicCode(w http.ResponseWriter, r *http.Request) {
 	var req MagicCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		badRequest(w, "Invalid JSON body")
 		return
 	}
 
@@ -144,18 +145,13 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if magicCode.Attempts >= auth.MaxAttempts {
-		writeError(w, http.StatusUnauthorized, ErrCodeInvalidCredentials, "Too many attempts")
-		return
-	}
-
-	newAttempts, err := h.magicCodes.IncrementAttempts(magicCode.ID)
+	newAttempts, err := h.magicCodes.IncrementAttempts(magicCode.ID, auth.MaxAttempts)
 	if err != nil {
 		log.Printf("Error incrementing attempts: %v", err)
 		internalError(w)
 		return
 	}
-	if newAttempts > auth.MaxAttempts {
+	if newAttempts < 0 {
 		writeError(w, http.StatusUnauthorized, ErrCodeInvalidCredentials, "Too many attempts")
 		return
 	}
