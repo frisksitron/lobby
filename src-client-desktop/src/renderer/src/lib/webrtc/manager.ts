@@ -94,6 +94,8 @@ class WebRTCManager {
   private makingOffer = false
   // Track pending negotiation requests (for deferred negotiation when not in stable state)
   private needsNegotiation = false
+  // Track whether the initial offer has been handled (prevents duplicate addTrack on early renegotiation)
+  private initialOfferHandled = false
   private muted = false
   // Promise that resolves when audio stream is ready
   private audioReadyPromise: Promise<void> | null = null
@@ -113,6 +115,7 @@ class WebRTCManager {
     log.info("Starting...")
     this.state = "connecting"
     this.iceServers = iceServers
+    this.initialOfferHandled = false
 
     // Create promise that resolves when audio stream is ready
     this.audioReadyPromise = new Promise((resolve) => {
@@ -226,6 +229,7 @@ class WebRTCManager {
     this.clearIceRestartTimeout()
     this.makingOffer = false
     this.needsNegotiation = false
+    this.initialOfferHandled = false
     // Resolve pending audio promise so handleOffer doesn't hang
     if (this.audioReadyResolve) {
       this.audioReadyResolve()
@@ -572,7 +576,11 @@ class WebRTCManager {
     if (!this.peerConnection) return
 
     try {
-      const isInitialOffer = this.state === "connecting"
+      const isInitialOffer = !this.initialOfferHandled
+      this.initialOfferHandled = true
+      if (isInitialOffer) {
+        this.clearAnswerTimeout()
+      }
 
       // Perfect negotiation: client is the "polite" peer
       // Check for offer collision: we're making an offer while receiving one
@@ -600,25 +608,22 @@ class WebRTCManager {
         }
       }
 
+      // Activate pending screen share track if server triggered renegotiation for it
+      if (screenShareManager.hasPendingTrack()) {
+        await screenShareManager.activatePendingShare()
+      }
+
       const answer = await this.peerConnection.createAnswer()
       await this.peerConnection.setLocalDescription(answer)
 
       // Apply audio parameters AFTER negotiation completes (encodings are now available)
       if (isInitialOffer && this.peerConnection) {
         await this.applyAudioSenderParameters()
-        // Initialize video sender from server's transceiver so screen share can use replaceTrack()
-        // instead of addTrack(), avoiding client-initiated renegotiation and DTLS role conflicts
-        screenShareManager.initializeVideoSender()
       }
 
       log.info(isInitialOffer ? "Sending answer (initial)" : "Sending answer (renegotiation)")
       if (!answer.sdp) throw new Error("Answer SDP is empty")
       wsManager.sendRtcAnswer(answer.sdp)
-
-      // Clear timeout for initial connection
-      if (isInitialOffer) {
-        this.clearAnswerTimeout()
-      }
 
       // Check if there's a pending negotiation request (e.g., screen share was initiated
       // while we were handling this server offer)

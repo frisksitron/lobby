@@ -88,6 +88,9 @@ class ConnectionService {
   // Concurrency guard: incremented on each connection attempt, checked after awaits
   private connectGeneration = 0
 
+  // Set when server sends invalid_session (duplicate login eviction)
+  private sessionReplaced = false
+
   constructor() {
     // Initialize signals
     const [phase, setPhase] = createSignal<ConnectionPhase>("disconnected")
@@ -280,10 +283,29 @@ class ConnectionService {
     )
 
     unsubscribes.push(
+      wsManager.on("invalid_session", () => {
+        this.sessionReplaced = true
+      })
+    )
+
+    unsubscribes.push(
       wsManager.on("disconnected", () => {
         this.emitLifecycle("voice_save")
         this.emitLifecycle("voice_stop")
         webrtcManager.stop()
+
+        if (this.sessionReplaced) {
+          this.sessionReplaced = false
+          this.setPhase("failed")
+          this.setConnectionDetail({
+            status: "unavailable",
+            reason: "session_replaced",
+            message: "Signed in from another device.",
+            since: Date.now()
+          })
+          this.emit("disconnected", undefined)
+          return
+        }
 
         this.setPhase("connecting")
 

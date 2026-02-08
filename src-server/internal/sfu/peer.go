@@ -162,8 +162,10 @@ func (p *Peer) CreateOffer() (webrtc.SessionDescription, error) {
 }
 
 // CreateInitialOffer creates the first offer for a new peer connection.
-// It adds transceivers for audio (sendrecv) and video (recvonly) so the
-// server can receive client audio and send video to the client.
+// It adds an audio transceiver (sendrecv) so the server can exchange audio
+// with the client. Video is added on-demand via EnsureVideoTransceiver()
+// when screen sharing starts, avoiding an empty video m-section that causes
+// RTCP mux errors in Chrome.
 func (p *Peer) CreateInitialOffer() (webrtc.SessionDescription, error) {
 	if p.IsClosed() {
 		return webrtc.SessionDescription{}, ErrPeerNotActive
@@ -177,15 +179,31 @@ func (p *Peer) CreateInitialOffer() (webrtc.SessionDescription, error) {
 		return webrtc.SessionDescription{}, fmt.Errorf("failed to add audio transceiver: %w", err)
 	}
 
-	// Add video transceiver (sendrecv) - for screen sharing
-	_, err = p.conn.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+	return p.conn.CreateOffer(nil)
+}
+
+// EnsureVideoTransceiver adds a sendrecv video transceiver if one doesn't
+// already exist. Called when screen sharing starts so the renegotiation offer
+// includes a video m-section.
+func (p *Peer) EnsureVideoTransceiver() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.IsClosed() {
+		return ErrPeerNotActive
+	}
+	for _, t := range p.conn.GetTransceivers() {
+		if t.Kind() == webrtc.RTPCodecTypeVideo {
+			return nil
+		}
+	}
+	_, err := p.conn.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionSendrecv,
 	})
 	if err != nil {
-		return webrtc.SessionDescription{}, fmt.Errorf("failed to add video transceiver: %w", err)
+		return fmt.Errorf("failed to add video transceiver: %w", err)
 	}
-
-	return p.conn.CreateOffer(nil)
+	log.Printf("[SFU] Added video transceiver to peer %s for screen share", p.ID)
+	return nil
 }
 
 func (p *Peer) AddICECandidate(candidate webrtc.ICECandidateInit) error {

@@ -20,8 +20,6 @@ type RtcIceCandidatePayload struct {
 	SDPMLineIndex *uint16 `json:"sdpMLineIndex,omitempty"`
 }
 
-type VideoTrackCallback func(userID string, track *webrtc.TrackLocalStaticRTP)
-
 // SFU manages WebRTC peer connections for voice chat
 type SFU struct {
 	config                *Config
@@ -29,9 +27,9 @@ type SFU struct {
 	mu                    sync.RWMutex
 	peers                 map[string]*Peer
 	signalingCallback     SignalingCallback
-	onVideoTrackCallback  VideoTrackCallback
 	screenShareManager    *ScreenShareManager
 	pendingRenegotiations map[string]bool // userID -> needs renegotiation
+	negotiating           map[string]bool // userID -> offer in flight (guards triggerRenegotiation TOCTOU)
 }
 
 func New(config *Config) (*SFU, error) {
@@ -53,7 +51,7 @@ func New(config *Config) (*SFU, error) {
 		RTPCodecCapability: webrtc.RTPCodecCapability{
 			MimeType:    webrtc.MimeTypeOpus,
 			ClockRate:   48000,
-			Channels:    1,
+			Channels:    2,
 			SDPFmtpLine: "minptime=10;useinbandfec=1",
 		},
 		PayloadType: 111,
@@ -83,6 +81,7 @@ func New(config *Config) (*SFU, error) {
 		api:                   api,
 		peers:                 make(map[string]*Peer),
 		pendingRenegotiations: make(map[string]bool),
+		negotiating:           make(map[string]bool),
 	}, nil
 }
 
@@ -90,12 +89,6 @@ func (s *SFU) SetSignalingCallback(cb SignalingCallback) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.signalingCallback = cb
-}
-
-func (s *SFU) SetVideoTrackCallback(cb VideoTrackCallback) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.onVideoTrackCallback = cb
 }
 
 // SetScreenShareManager sets the screen share manager reference for collision handling
@@ -144,6 +137,7 @@ func (s *SFU) RemovePeer(userID string) {
 	}
 	delete(s.peers, userID)
 	delete(s.pendingRenegotiations, userID)
+	delete(s.negotiating, userID)
 
 	// Collect other peers to update (while still holding lock)
 	otherPeers := make(map[string]*Peer)
@@ -267,6 +261,10 @@ func (s *SFU) HandleOffer(userID string, sdp string) (string, error) {
 				log.Printf("[SFU] Rollback failed for %s: %v", userID, err)
 				return "", nil
 			}
+			// Server abandoned its offer, clear the in-flight flag
+			s.mu.Lock()
+			delete(s.negotiating, userID)
+			s.mu.Unlock()
 		} else {
 			log.Printf("[SFU] Ignoring offer from %s - offer collision (state: %s, server is impolite peer)", userID, signalingState.String())
 			return "", nil
@@ -324,8 +322,9 @@ func (s *SFU) HandleAnswer(userID string, sdp string) error {
 		return NewTransientError(userID, "HandleAnswer.SetRemoteDescription", err)
 	}
 
-	// Check for pending renegotiation requests now that we're back in stable state
+	// Negotiation complete - clear the in-flight flag and check for pending requests
 	s.mu.Lock()
+	delete(s.negotiating, userID)
 	hasPending := s.pendingRenegotiations[userID]
 	if hasPending {
 		delete(s.pendingRenegotiations, userID)
@@ -391,13 +390,13 @@ func (s *SFU) OnPeerTrackReady(userID string, trackKind string, track *webrtc.Tr
 	// For audio tracks, distribute to all peers
 	// For video tracks, only distribute to subscribed peers (handled by screenshare manager)
 	if trackKind == "video" {
-		log.Printf("[SFU] Video track ready from %s - screenshare manager will handle distribution", userID)
-		// Notify screenshare manager via callback
 		s.mu.RLock()
-		cb := s.onVideoTrackCallback
+		sm := s.screenShareManager
 		s.mu.RUnlock()
-		if cb != nil {
-			cb(userID, track)
+		if sm != nil {
+			sm.onVideoTrackReady(userID, track)
+		} else {
+			log.Printf("[SFU] Video track ready from %s but no screen share manager", userID)
 		}
 		return
 	}
@@ -449,14 +448,16 @@ func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 		return
 	}
 
-	if !peer.IsReadyForRenegotiation() {
+	if !peer.IsReadyForRenegotiation() || s.negotiating[userID] {
 		// Mark for later - will be processed when HandleAnswer brings us to stable state
 		s.pendingRenegotiations[userID] = true
 		s.mu.Unlock()
-		log.Printf("[SFU] Queued renegotiation for %s - not in stable state", userID)
+		log.Printf("[SFU] Queued renegotiation for %s - not in stable state or negotiation in flight", userID)
 		return
 	}
 
+	// Claim the negotiation slot before releasing the lock to prevent concurrent offers
+	s.negotiating[userID] = true
 	// Clear pending flag since we're doing it now
 	delete(s.pendingRenegotiations, userID)
 	s.mu.Unlock()
@@ -464,11 +465,17 @@ func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 	offer, err := peer.CreateOffer()
 	if err != nil {
 		log.Printf("[SFU] Error creating offer for %s: %v", userID, err)
+		s.mu.Lock()
+		delete(s.negotiating, userID)
+		s.mu.Unlock()
 		return
 	}
 
 	if err := peer.SetLocalDescription(offer); err != nil {
 		log.Printf("[SFU] Error setting local description for %s: %v", userID, err)
+		s.mu.Lock()
+		delete(s.negotiating, userID)
+		s.mu.Unlock()
 		return
 	}
 

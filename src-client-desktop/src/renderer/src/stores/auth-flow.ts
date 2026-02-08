@@ -73,6 +73,7 @@ async function startAuthFlow(
     // Server is known - skip URL entry and go to email input
     setServerUrl(server.url)
     setAuthError(null)
+    setStep("email-input")
     setIsLoading(true)
 
     // Always fetch fresh server info to confirm server is reachable
@@ -86,7 +87,6 @@ async function startAuthFlow(
       return
     }
 
-    setStep("email-input")
     setIsLoading(false)
 
     // Pre-fill email from stored server entry

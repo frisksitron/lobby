@@ -31,11 +31,10 @@ type TURNConfig struct {
 }
 
 type ServerConfig struct {
-	Name           string   `yaml:"name"`
-	Host           string   `yaml:"host"`
-	Port           int      `yaml:"port"`
-	BaseURL        string   `yaml:"base_url"`
-	AllowedOrigins []string `yaml:"allowed_origins"`
+	Name    string `yaml:"name"`
+	Host    string `yaml:"host"`
+	Port    int    `yaml:"port"`
+	BaseURL string `yaml:"base_url"`
 }
 
 type DatabaseConfig struct {
@@ -126,9 +125,6 @@ func (c *Config) setDefaults() {
 	}
 	if c.Server.BaseURL == "" {
 		c.Server.BaseURL = fmt.Sprintf("http://%s:%d", c.Server.Host, c.Server.Port)
-	}
-	if len(c.Server.AllowedOrigins) == 0 {
-		c.Server.AllowedOrigins = []string{c.Server.BaseURL}
 	}
 	if c.Database.Path == "" {
 		c.Database.Path = "./data/lobby.db"

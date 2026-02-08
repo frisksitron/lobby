@@ -77,7 +77,8 @@ type Client struct {
 	// DroppedMessages tracks how many messages have been dropped due to full buffer
 	DroppedMessages int64
 
-	// Rate limiting state
+	// Rate limiting state — only accessed from the ReadPump goroutine (via handleMessage),
+	// so no mutex is needed.
 	lastMessage         time.Time
 	voiceJoins          []time.Time // timestamps of recent voice joins
 	voiceJoinCooldownAt time.Time   // when join cooldown expires
@@ -234,8 +235,6 @@ func (c *Client) handleDispatch(msg *WSMessage) {
 		c.handleScreenShareSubscribe(msg)
 	case CmdScreenShareUnsubscribe:
 		c.handleScreenShareUnsubscribe()
-	case CmdScreenShareReady:
-		c.handleScreenShareReady()
 	default:
 		log.Printf("Unknown dispatch type: %s", msg.Type)
 	}
@@ -246,11 +245,34 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		return
 	}
 
-	// Token was already validated during the upgrade and user was set
-	if c.user == nil {
-		log.Printf("User not set during upgrade")
+	data, _ := msg.Data.(map[string]interface{})
+
+	// Extract and validate token from IDENTIFY payload
+	token, _ := data["token"].(string)
+	if token == "" {
+		log.Printf("IDENTIFY missing token")
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "Missing token"}}
+		c.Close()
 		return
 	}
+
+	claims, err := c.hub.jwtService.ValidateAccessToken(token)
+	if err != nil {
+		log.Printf("IDENTIFY invalid token: %v", err)
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "Invalid token"}}
+		c.Close()
+		return
+	}
+
+	user, err := c.hub.userRepo.FindByID(claims.UserID)
+	if err != nil {
+		log.Printf("IDENTIFY user not found: %v", err)
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "User not found"}}
+		c.Close()
+		return
+	}
+
+	c.SetUser(user)
 
 	// Transition to identified state
 	if !c.transitionTo(ClientStateIdentified) {
@@ -258,7 +280,6 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 	}
 	c.sessionID = uuid.New().String()
 
-	data, _ := msg.Data.(map[string]interface{})
 	if presence, ok := data["presence"].(map[string]interface{}); ok {
 		if status, ok := presence["status"].(string); ok {
 			switch status {
@@ -838,9 +859,15 @@ func (c *Client) handleScreenShareStart() {
 		return
 	}
 
-	// Register as pending - client will send offer with video track
+	// Register as sharing, then trigger server renegotiation so the client
+	// can change video direction to sendrecv and attach the track
 	sm.StartShare(c.user.ID)
-	log.Printf("User %s requested screen share, waiting for client offer", c.user.ID)
+
+	sfuInst := c.hub.GetSFU()
+	if sfuInst != nil {
+		sfuInst.TriggerRenegotiation(c.user.ID)
+	}
+	log.Printf("User %s requested screen share, triggered renegotiation", c.user.ID)
 }
 
 func (c *Client) handleScreenShareStop() {
@@ -895,24 +922,3 @@ func (c *Client) handleScreenShareUnsubscribe() {
 	sm.Unsubscribe(c.user.ID)
 }
 
-func (c *Client) handleScreenShareReady() {
-	if !c.IsIdentified() {
-		return
-	}
-
-	// User must be in voice
-	if c.hub.GetUserVoiceState(c.user.ID) == nil {
-		return
-	}
-
-	// User must have an active or pending screen share
-	sm := c.hub.GetScreenShareManager()
-	if sm == nil {
-		return
-	}
-	if !sm.IsStreaming(c.user.ID) && !sm.IsPendingShare(c.user.ID) {
-		return
-	}
-
-	c.hub.HandleScreenShareReady(c.user.ID)
-}

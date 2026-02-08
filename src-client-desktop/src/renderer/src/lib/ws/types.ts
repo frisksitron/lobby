@@ -45,8 +45,7 @@ export enum WSCommandType {
   ScreenShareStart = "SCREEN_SHARE_START",
   ScreenShareStop = "SCREEN_SHARE_STOP",
   ScreenShareSubscribe = "SCREEN_SHARE_SUBSCRIBE",
-  ScreenShareUnsubscribe = "SCREEN_SHARE_UNSUBSCRIBE",
-  ScreenShareReady = "SCREEN_SHARE_READY"
+  ScreenShareUnsubscribe = "SCREEN_SHARE_UNSUBSCRIBE"
 }
 
 // Base WebSocket message

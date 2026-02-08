@@ -28,6 +28,10 @@ const ConnectionStatusView: Component = () => {
       return CONNECTION_STATUS.needsAuth
     }
 
+    if (detail.reason === "session_replaced") {
+      return CONNECTION_STATUS.sessionReplaced
+    }
+
     if (detail.status === "offline") {
       return CONNECTION_STATUS.offline
     }
@@ -62,7 +66,13 @@ const ConnectionStatusView: Component = () => {
       <Match when={statusInfo().type === "offline"}>
         <TbOutlineWifiOff class="w-8 h-8 text-error" />
       </Match>
-      <Match when={statusInfo().type === "max_retries" || statusInfo().type === "unavailable"}>
+      <Match
+        when={
+          statusInfo().type === "max_retries" ||
+          statusInfo().type === "unavailable" ||
+          statusInfo().type === "session_replaced"
+        }
+      >
         <TbOutlineAlertTriangle class="w-8 h-8 text-warning" />
       </Match>
       <Match when={true}>

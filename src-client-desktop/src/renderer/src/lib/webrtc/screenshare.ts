@@ -13,6 +13,7 @@ class ScreenShareManager {
   private remoteStreamCallback: RemoteStreamCallback | null = null
   private currentViewingStreamerId: string | null = null
   private videoSender: RTCRtpSender | null = null
+  private pendingVideoTrack: MediaStreamTrack | null = null
 
   setPeerConnection(pc: RTCPeerConnection | null): void {
     this.peerConnection = pc
@@ -20,35 +21,55 @@ class ScreenShareManager {
     this.videoSender = null
   }
 
+  hasPendingTrack(): boolean {
+    return this.pendingVideoTrack !== null
+  }
+
   /**
-   * Initialize the video sender from existing transceiver.
-   * Call this after the initial offer/answer is complete.
-   * The server creates a sendrecv video transceiver in its initial offer,
-   * so we can reuse it with replaceTrack() instead of addTrack().
-   * This avoids client-initiated renegotiation which causes DTLS role conflicts.
+   * Activate a pending screen share after server-triggered renegotiation.
+   * Finds the video transceiver, sets direction to sendrecv, attaches the track,
+   * and applies video parameters.
    */
-  initializeVideoSender(): void {
-    if (!this.peerConnection || this.videoSender) {
+  async activatePendingShare(): Promise<void> {
+    if (!this.peerConnection || !this.pendingVideoTrack) {
       return
     }
 
-    // Find the video transceiver created by the server's initial offer
-    // The transceiver's receiver will have kind="video" even if no track is assigned yet
     const transceivers = this.peerConnection.getTransceivers()
-    for (const transceiver of transceivers) {
-      // Check the receiver's track kind - this is set even before data arrives
-      // The mid will be "1" for video (after "0" for audio) based on server's offer order
-      const receiverTrack = transceiver.receiver.track
-      if (receiverTrack && receiverTrack.kind === "video") {
-        this.videoSender = transceiver.sender
-        log.info(
-          `Initialized video sender from existing transceiver (mid=${transceiver.mid}, direction=${transceiver.direction})`
-        )
-        return
+    let videoTransceiver: RTCRtpTransceiver | null = null
+    for (const t of transceivers) {
+      if (t.receiver.track?.kind === "video") {
+        videoTransceiver = t
+        break
       }
     }
 
-    log.warn("No existing video transceiver found - screen share will require renegotiation")
+    if (!videoTransceiver) {
+      log.error("No video transceiver found during activatePendingShare")
+      return
+    }
+
+    videoTransceiver.direction = "sendrecv"
+    this.videoSender = videoTransceiver.sender
+    await this.videoSender.replaceTrack(this.pendingVideoTrack)
+    log.info("Activated pending screen share track")
+
+    // Apply video bitrate/priority parameters
+    try {
+      const params = this.videoSender.getParameters()
+      if (params.encodings && params.encodings.length > 0) {
+        params.encodings[0].maxBitrate = VIDEO_MAX_BITRATE_BPS
+        params.encodings[0].priority = VIDEO_PRIORITY
+        params.encodings[0].networkPriority = VIDEO_NETWORK_PRIORITY
+      }
+      params.degradationPreference = "maintain-framerate"
+      await this.videoSender.setParameters(params)
+      log.info("Applied video priority and bandwidth settings")
+    } catch (err) {
+      log.warn("Could not set video parameters:", err)
+    }
+
+    this.pendingVideoTrack = null
   }
 
   onRemoteStream(callback: RemoteStreamCallback): void {
@@ -56,11 +77,12 @@ class ScreenShareManager {
   }
 
   /**
-   * Start sharing screen with the selected source
+   * Start sharing screen with the selected source.
    *
-   * Uses replaceTrack() pattern to avoid transceiver state corruption:
-   * - First share: addTrack() creates transceiver, triggers negotiation
-   * - Subsequent shares: replaceTrack() reuses sender, no renegotiation needed
+   * Two paths:
+   * - First share (videoSender null): capture track, store as pending, send WS start.
+   *   Server triggers renegotiation → handleOffer calls activatePendingShare().
+   * - Subsequent shares (videoSender set): direct replaceTrack, no renegotiation.
    */
   async startShare(sourceId: string): Promise<void> {
     if (!this.peerConnection) {
@@ -94,48 +116,31 @@ class ScreenShareManager {
 
       this.localVideoTrack.onended = () => this.stopShare()
 
-      wsManager.startScreenShare()
-
       if (this.videoSender) {
-        // Reuse existing sender with replaceTrack - no client-initiated renegotiation
+        // Subsequent share: reuse existing sender, no renegotiation needed
         await this.videoSender.replaceTrack(this.localVideoTrack)
 
-        // CRITICAL: Change transceiver direction from recvonly to sendrecv
-        // Without this, the answer SDP will say recvonly and server won't expect video
-        const transceivers = this.peerConnection.getTransceivers()
-        for (const transceiver of transceivers) {
-          if (transceiver.sender === this.videoSender) {
-            transceiver.direction = "sendrecv"
-            log.info(`Set video transceiver direction to sendrecv`)
-            break
+        // Apply video bitrate/priority parameters
+        try {
+          const params = this.videoSender.getParameters()
+          if (params.encodings && params.encodings.length > 0) {
+            params.encodings[0].maxBitrate = VIDEO_MAX_BITRATE_BPS
+            params.encodings[0].priority = VIDEO_PRIORITY
+            params.encodings[0].networkPriority = VIDEO_NETWORK_PRIORITY
           }
+          params.degradationPreference = "maintain-framerate"
+          await this.videoSender.setParameters(params)
+          log.info("Applied video priority and bandwidth settings")
+        } catch (err) {
+          log.warn("Could not set video parameters:", err)
         }
 
-        // Signal server that track is ready - server will initiate renegotiation
-        // This triggers OnTrack on server side while maintaining correct DTLS roles
-        wsManager.screenShareReady()
+        wsManager.startScreenShare()
       } else {
-        // First time - creates transceiver, triggers negotiation
-        this.videoSender = this.peerConnection.addTrack(this.localVideoTrack, stream)
-        // For addTrack(), the negotiationneeded event will trigger client offer
-        // which the server will handle normally
-      }
-
-      // Apply low priority and bandwidth cap to video sender
-      // This ensures voice chat takes precedence under bandwidth contention
-      try {
-        const params = this.videoSender.getParameters()
-        if (params.encodings && params.encodings.length > 0) {
-          params.encodings[0].maxBitrate = VIDEO_MAX_BITRATE_BPS
-          params.encodings[0].priority = VIDEO_PRIORITY
-          params.encodings[0].networkPriority = VIDEO_NETWORK_PRIORITY
-        }
-        // Degrade resolution first, maintain framerate for smooth motion
-        params.degradationPreference = "maintain-framerate"
-        await this.videoSender.setParameters(params)
-        log.info("Applied video priority and bandwidth settings")
-      } catch (err) {
-        log.warn("Could not set video parameters:", err)
+        // First share: store track as pending, server will trigger renegotiation
+        this.pendingVideoTrack = this.localVideoTrack
+        wsManager.startScreenShare()
+        log.info("Stored pending video track, waiting for server renegotiation")
       }
 
       log.info("Screen share started")
@@ -244,6 +249,7 @@ class ScreenShareManager {
     this.unsubscribe()
     this.peerConnection = null
     this.videoSender = null // Reset for next voice session
+    this.pendingVideoTrack = null
   }
 
   getViewingStreamerId(): string | null {
@@ -266,6 +272,8 @@ class ScreenShareManager {
       }
       this.localStream = null
     }
+
+    this.pendingVideoTrack = null
   }
 }
 

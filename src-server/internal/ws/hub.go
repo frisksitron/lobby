@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"lobby/internal/auth"
 	"lobby/internal/config"
 	"lobby/internal/constants"
 	"lobby/internal/db"
@@ -38,6 +39,7 @@ type Hub struct {
 	registerSync      chan registerRequest
 	unregister        chan *Client
 	shutdown          chan struct{}
+	jwtService        *auth.JWTService
 	userRepo          *db.UserRepository
 	messageRepo       *db.MessageRepository
 	sfu               *sfu.SFU
@@ -47,7 +49,7 @@ type Hub struct {
 	mu                sync.RWMutex
 }
 
-func NewHub(userRepo *db.UserRepository, messageRepo *db.MessageRepository, sfuCfg *config.SFUConfig) (*Hub, error) {
+func NewHub(jwtService *auth.JWTService, userRepo *db.UserRepository, messageRepo *db.MessageRepository, sfuCfg *config.SFUConfig) (*Hub, error) {
 	h := &Hub{
 		clients:           make(map[*Client]bool),
 		userClients:       make(map[string]*Client),
@@ -56,6 +58,7 @@ func NewHub(userRepo *db.UserRepository, messageRepo *db.MessageRepository, sfuC
 		registerSync:      make(chan registerRequest),
 		unregister:        make(chan *Client),
 		shutdown:          make(chan struct{}),
+		jwtService:        jwtService,
 		userRepo:          userRepo,
 		messageRepo:       messageRepo,
 		sfuCfg:            sfuCfg,
@@ -113,6 +116,11 @@ func (h *Hub) Run() {
 			if req.client.user != nil {
 				replacedUserID = req.client.user.ID
 				if old, ok := h.userClients[replacedUserID]; ok && old != req.client {
+					// Notify old client before closing so it knows not to retry
+					select {
+					case old.send <- &WSMessage{Op: OpInvalidSession, Data: InvalidSessionPayload{Resumable: false}}:
+					default:
+					}
 					if _, inVoice := h.voiceParticipants[replacedUserID]; inVoice {
 						delete(h.voiceParticipants, replacedUserID)
 						wasInVoice = true
@@ -536,17 +544,6 @@ func (h *Hub) handleScreenShareUpdate(userID string, streaming bool) {
 		UserID:    userID,
 		Streaming: streaming,
 	})
-}
-
-// HandleScreenShareReady is called when a client signals its video track is ready after replaceTrack().
-// This triggers server-initiated renegotiation to update SDP and fire OnTrack on the server.
-func (h *Hub) HandleScreenShareReady(userID string) {
-	if h.sfu == nil {
-		return
-	}
-
-	log.Printf("[Hub] Screen share ready from %s, triggering renegotiation", userID)
-	h.sfu.TriggerRenegotiation(userID)
 }
 
 // cleanupVoiceForUser tears down SFU peer, screen share, and broadcasts voice-leave.

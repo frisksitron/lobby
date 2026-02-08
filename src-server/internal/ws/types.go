@@ -56,7 +56,6 @@ const (
 	CmdScreenShareStop        = "SCREEN_SHARE_STOP"
 	CmdScreenShareSubscribe   = "SCREEN_SHARE_SUBSCRIBE"
 	CmdScreenShareUnsubscribe = "SCREEN_SHARE_UNSUBSCRIBE"
-	CmdScreenShareReady       = "SCREEN_SHARE_READY"
 )
 
 type WSMessage struct {

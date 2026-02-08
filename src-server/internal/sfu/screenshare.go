@@ -34,9 +34,6 @@ func NewScreenShareManager(sfu *SFU) *ScreenShareManager {
 		pendingKeyframes: make(map[string]string),
 	}
 
-	// Register callback for video tracks
-	sfu.SetVideoTrackCallback(sm.onVideoTrackReady)
-
 	return sm
 }
 
@@ -79,6 +76,12 @@ func (sm *ScreenShareManager) StartShare(userID string) {
 		log.Printf("[ScreenShare] User %s reusing existing video track (replaceTrack pattern)", userID)
 		sm.onVideoTrackReady(userID, existingTrack)
 		return
+	}
+
+	if peer != nil {
+		if err := peer.EnsureVideoTransceiver(); err != nil {
+			log.Printf("[ScreenShare] Error ensuring video transceiver for %s: %v", userID, err)
+		}
 	}
 
 	log.Printf("[ScreenShare] User %s registered for streaming, waiting for video track", userID)

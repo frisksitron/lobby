@@ -10,7 +10,6 @@ import (
 
 	"lobby/internal/auth"
 	"lobby/internal/config"
-	"lobby/internal/constants"
 	"lobby/internal/db"
 	"lobby/internal/email"
 	"lobby/internal/ws"
@@ -41,7 +40,7 @@ func NewServer(
 	)
 	magicService := auth.NewMagicCodeService(cfg.Auth.MagicCodeTTL)
 
-	hub, err := ws.NewHub(userRepo, messageRepo, &cfg.SFU)
+	hub, err := ws.NewHub(jwtService, userRepo, messageRepo, &cfg.SFU)
 	if err != nil {
 		return nil, fmt.Errorf("initializing hub: %w", err)
 	}
@@ -58,7 +57,7 @@ func NewServer(
 	)
 	userHandler := NewUserHandler(userRepo, hub)
 	serverInfoHandler := NewServerInfoHandler(cfg.Server.Name)
-	wsHandler := NewWebSocketHandler(hub, jwtService, userRepo, cfg.Server.AllowedOrigins)
+	wsHandler := NewWebSocketHandler(hub)
 	messageHandler := NewMessageHandler(messageRepo, userRepo)
 
 	authMiddleware := NewAuthMiddleware(jwtService)
@@ -67,8 +66,8 @@ func NewServer(
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
+	r.Use(corsMiddleware)
 	r.Use(securityHeadersMiddleware)
-	r.Use(corsMiddleware(cfg.Server.AllowedOrigins))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/server/info", serverInfoHandler.GetInfo)
@@ -115,6 +114,21 @@ func (s *Server) Shutdown() {
 	s.hub.Shutdown()
 }
 
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -125,42 +139,3 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
-	allowed := make(map[string]bool, len(allowedOrigins))
-	for _, o := range allowedOrigins {
-		allowed[o] = true
-	}
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if !allowed[origin] {
-				if r.Method == "OPTIONS" {
-					w.WriteHeader(http.StatusForbidden)
-					return
-				}
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Max-Age", constants.CORSMaxAgeSec)
-			w.Header().Set("Vary", "Origin")
-
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}

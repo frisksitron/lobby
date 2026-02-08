@@ -39,7 +39,7 @@ internal/
 
 ### Request Flow
 
-1. HTTP requests route through chi middleware (logging, recovery, CORS via `allowed_origins` config, security headers, auth)
+1. HTTP requests route through chi middleware (logging, recovery, security headers, auth)
 2. Auth endpoints issue magic codes via email, verify them, return JWT access + refresh tokens
 3. WebSocket upgrade at `/ws` (token in query string) registers client with the Hub
 4. Hub broadcasts events (presence, messages, typing, voice state) to connected clients
@@ -66,7 +66,7 @@ SQLite3 with WAL mode. Tables: `users`, `magic_codes`, `refresh_tokens`, `messag
 
 ## Configuration
 
-All config via YAML files (`config.yaml` / `config.dev.yaml`). No environment variables. Key sections: `server`, `database`, `auth`, `email`, `sfu`. JWT secret must be ≥32 chars. Dev config uses mailpit on localhost:1025 for SMTP. `server.allowed_origins` controls CORS and WebSocket origin validation (defaults to `[base_url]`).
+All config via YAML files (`config.yaml` / `config.dev.yaml`). No environment variables. Key sections: `server`, `database`, `auth`, `email`, `sfu`. JWT secret must be ≥32 chars. Dev config uses mailpit on localhost:1025 for SMTP.
 
 ## Deployment
 

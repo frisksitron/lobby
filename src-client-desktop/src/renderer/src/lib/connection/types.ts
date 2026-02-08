@@ -16,6 +16,7 @@ export type ConnectionDetailReason =
   | "ws_closed"
   | "server_error"
   | "auth_expired"
+  | "session_replaced"
 
 export interface ConnectionDetail {
   status: ConnectionDetailStatus

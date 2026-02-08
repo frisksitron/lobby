@@ -138,7 +138,7 @@ class WebSocketManager {
       this.token = token
       this.state = "connecting"
 
-      const wsUrl = `${serverUrl.replace(/^http/, "ws")}/ws?token=${encodeURIComponent(token)}`
+      const wsUrl = `${serverUrl.replace(/^http/, "ws")}/ws`
 
       try {
         this.ws = new WebSocket(wsUrl)
@@ -315,14 +315,6 @@ class WebSocketManager {
    */
   unsubscribeScreenShare(): void {
     this.sendDispatch(WSCommandType.ScreenShareUnsubscribe, {})
-  }
-
-  /**
-   * Signal that screen share video track is ready for server-initiated renegotiation.
-   * Called after replaceTrack() to trigger server to send a new offer.
-   */
-  screenShareReady(): void {
-    this.sendDispatch(WSCommandType.ScreenShareReady, {})
   }
 
   /**

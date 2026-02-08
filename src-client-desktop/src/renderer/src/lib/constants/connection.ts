@@ -5,6 +5,7 @@ export type ConnectionStatusType =
   | "unavailable"
   | "max_retries"
   | "needs_auth"
+  | "session_replaced"
 
 export type ConnectionStatusInfo = {
   type: ConnectionStatusType
@@ -45,6 +46,12 @@ export const CONNECTION_STATUS = {
     showCountdown: false,
     showRetry: false,
     showSignIn: true
+  },
+  sessionReplaced: {
+    type: "session_replaced",
+    message: "Signed in from another device.",
+    showCountdown: false,
+    showRetry: true
   },
   maxRetries: (attempts: number): ConnectionStatusInfo => ({
     type: "max_retries",
