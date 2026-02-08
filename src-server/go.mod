@@ -12,6 +12,9 @@ require (
 )
 
 require (
+	github.com/aymerick/douceur v0.2.0 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
+	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/pion/transport/v4 v4.0.1 // indirect
 	golang.org/x/time v0.14.0 // indirect
 )

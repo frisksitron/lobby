@@ -141,6 +141,7 @@ connectionService.on("message_create", (payload: MessageCreatePayload) => {
           ? {
               ...msg,
               id: payload.id,
+              content: payload.content,
               timestamp: payload.created_at
             }
           : msg
@@ -173,10 +174,9 @@ function getMessagesForServer(_serverId: string): Message[] {
 function sendMessage(serverId: string, content: string): void {
   const userId = connectionService.getUserId()
   const currentUserValue = userId ? users[userId] : null
-  if (!currentUserValue || !content.trim()) return
+  if (!currentUserValue) return
 
   const nonce = generateNonce()
-  const trimmedContent = content.trim()
 
   const tempMessage: Message = {
     id: `pending-${nonce}`,
@@ -184,7 +184,7 @@ function sendMessage(serverId: string, content: string): void {
     authorId: currentUserValue.id,
     authorName: currentUserValue.username,
     authorAvatarUrl: currentUserValue.avatarUrl,
-    content: trimmedContent,
+    content,
     timestamp: new Date().toISOString()
   }
 
@@ -201,7 +201,7 @@ function sendMessage(serverId: string, content: string): void {
   }, PENDING_MESSAGE_TIMEOUT_MS)
   pendingTimeouts.set(nonce, timeout)
 
-  wsManager.sendMessage(trimmedContent, nonce)
+  wsManager.sendMessage(content, nonce)
 }
 
 async function loadMoreHistory(beforeId: string, limit: number = 50): Promise<number> {

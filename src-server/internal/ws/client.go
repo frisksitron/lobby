@@ -10,11 +10,27 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/microcosm-cc/bluemonday"
 
 	"lobby/internal/constants"
 	"lobby/internal/models"
 	"lobby/internal/sfu"
 )
+
+// htmlPolicy is a concurrency-safe bluemonday policy for sanitizing message HTML.
+var htmlPolicy = func() *bluemonday.Policy {
+	p := bluemonday.NewPolicy()
+	p.AllowElements(
+		"p", "br", "strong", "b", "em", "i", "s", "del",
+		"code", "pre", "a", "ul", "ol", "li", "blockquote",
+		"h1", "h2", "h3", "h4", "h5", "h6", "hr",
+	)
+	p.AllowAttrs("href", "rel").OnElements("a")
+	p.AllowURLSchemes("http", "https", "mailto")
+	p.RequireNoFollowOnLinks(true)
+	p.AddTargetBlankToFullyQualifiedLinks(true)
+	return p
+}()
 
 // ClientState represents the lifecycle state of a WebSocket client
 type ClientState int32
@@ -50,8 +66,8 @@ const (
 	voiceJoinWindow   = 15 * time.Second
 	voiceJoinCooldown = 15 * time.Second
 
-	// Maximum message content length in characters
-	maxMessageContentLength = 4000
+	// Maximum message content length in characters (includes HTML markup)
+	maxMessageContentLength = 8000
 
 	// Mute/deafen cooldown: 5 toggles in 5s triggers a 10s cooldown
 	voiceToggleLimit = 5
@@ -370,6 +386,11 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 	c.hub.BroadcastDispatchExcept(EventTypingStop, TypingStopPayload{
 		UserID: c.user.ID,
 	}, c)
+
+	content = htmlPolicy.Sanitize(content)
+	if content == "" {
+		return
+	}
 
 	message, err := c.hub.MessageRepo().Create(c.user.ID, content)
 	if err != nil {

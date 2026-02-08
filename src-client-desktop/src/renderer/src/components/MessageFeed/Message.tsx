@@ -1,5 +1,6 @@
 import { type Component, Show } from "solid-js"
 import type { Message as MessageType } from "../../../../shared/types"
+import { sanitizeHtml } from "../../lib/sanitize"
 import { useUsers } from "../../stores/users"
 import UserIdentity from "../shared/UserIdentity"
 
@@ -41,6 +42,15 @@ function formatShortTime(timestamp: string): string {
   })
 }
 
+const MessageContent: Component<{ content: string }> = (props) => {
+  return (
+    <div
+      class="message-content text-text-primary break-words"
+      innerHTML={sanitizeHtml(props.content)}
+    />
+  )
+}
+
 const Message: Component<MessageProps> = (props) => {
   const { getUserById } = useUsers()
   const isFirstInGroup = () => props.isFirstInGroup ?? true
@@ -61,7 +71,7 @@ const Message: Component<MessageProps> = (props) => {
             <span class="w-10 shrink-0 text-xs text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity text-right">
               {formatShortTime(props.message.timestamp)}
             </span>
-            <p class="text-text-primary break-all whitespace-pre-wrap">{props.message.content}</p>
+            <MessageContent content={props.message.content} />
           </div>
         }
       >
@@ -76,7 +86,9 @@ const Message: Component<MessageProps> = (props) => {
             {formatTimestamp(props.message.timestamp)}
           </span>
         </div>
-        <p class="text-text-primary break-all whitespace-pre-wrap ml-13">{props.message.content}</p>
+        <div class="ml-13">
+          <MessageContent content={props.message.content} />
+        </div>
       </Show>
     </div>
   )

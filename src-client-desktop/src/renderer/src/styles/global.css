@@ -91,4 +91,70 @@
   .input {
     @apply bg-surface border border-border rounded px-3 py-2 text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent;
   }
+
+  /* Rich text message content (rendered messages + editor) */
+  .message-content,
+  .prose-editor .ProseMirror {
+    p {
+      @apply my-0;
+      min-height: 1lh;
+    }
+
+    strong,
+    b {
+      @apply font-bold;
+    }
+
+    em,
+    i {
+      @apply italic;
+    }
+
+    s,
+    del {
+      @apply line-through;
+    }
+
+    code {
+      @apply bg-surface px-1 py-0.5 rounded text-sm font-mono;
+    }
+
+    pre {
+      @apply bg-surface rounded p-3 my-1 overflow-x-auto;
+
+      code {
+        @apply bg-transparent p-0;
+      }
+    }
+
+    a {
+      @apply text-accent hover:underline;
+    }
+
+    blockquote {
+      @apply border-l-2 border-border pl-3 my-1 text-text-secondary;
+    }
+
+    ul {
+      @apply list-disc pl-6 my-1;
+    }
+
+    ol {
+      @apply list-decimal pl-6 my-1;
+    }
+
+    li {
+      @apply my-0;
+    }
+  }
+
+  /* Editor-specific styles */
+  .prose-editor .ProseMirror {
+    @apply outline-none;
+    min-height: 1.5rem;
+  }
+
+  .prose-editor .ProseMirror .prosekit-placeholder::before {
+    @apply text-text-secondary;
+  }
 }
