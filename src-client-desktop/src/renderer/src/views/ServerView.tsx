@@ -5,6 +5,7 @@ import MessageInput from "../components/MessageInput/MessageInput"
 import TypingIndicator from "../components/MessageInput/TypingIndicator"
 import Sidebar from "../components/Sidebar/Sidebar"
 import StreamViewerContainer from "../components/StreamViewer/StreamViewerContainer"
+import PanelLayout from "../components/shared/PanelLayout"
 import { connectionService } from "../lib/connection"
 import { useConnection } from "../stores/connection"
 import ConnectionStatusView from "./ConnectionStatusView"
@@ -26,13 +27,12 @@ const ServerView: Component = () => {
 
   return (
     <Show when={connection.connectionState() === "connected"} fallback={<ConnectionStatusView />}>
-      <Sidebar />
-      <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <PanelLayout sidebar={<Sidebar />} contentClass="flex flex-col">
         <StreamViewerContainer />
         <MessageFeed />
         <TypingIndicator />
         <MessageInput />
-      </main>
+      </PanelLayout>
     </Show>
   )
 }

@@ -26,7 +26,7 @@ const AppLayout = (props: RouteSectionProps) => {
       </Show>
       <Header />
 
-      <div class="flex-1 flex overflow-hidden">{props.children}</div>
+      <div class="flex-1 flex overflow-hidden p-2 gap-2">{props.children}</div>
 
       <Show when={confirmDialog()}>
         {(config) => (

@@ -61,7 +61,8 @@ const ThemeSettings: Component = () => {
 
   return (
     <section>
-      <label class="block text-sm font-medium text-text-secondary mb-2">Color palette</label>
+      <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Theme</h3>
+      <label class="block text-sm font-medium text-text-secondary mb-1">Color palette</label>
       <div class="space-y-2">
         <For each={getAvailableThemes()}>
           {(theme) => (

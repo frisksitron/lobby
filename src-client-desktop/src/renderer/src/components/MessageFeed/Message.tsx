@@ -2,7 +2,7 @@ import { type Component, Show } from "solid-js"
 import type { Message as MessageType } from "../../../../shared/types"
 import { sanitizeHtml } from "../../lib/sanitize"
 import { useUsers } from "../../stores/users"
-import UserIdentity from "../shared/UserIdentity"
+import Avatar from "../shared/Avatar"
 
 interface MessageProps {
   message: MessageType
@@ -58,7 +58,7 @@ const Message: Component<MessageProps> = (props) => {
 
   return (
     <div
-      class="px-4 hover:bg-surface-elevated/50 transition-colors group"
+      class="px-4 rounded hover:bg-surface-elevated/50 transition-colors group"
       classList={{
         "pt-2": isFirstInGroup(),
         "pt-0.5": !isFirstInGroup()
@@ -67,27 +67,32 @@ const Message: Component<MessageProps> = (props) => {
       <Show
         when={isFirstInGroup()}
         fallback={
-          <div class="flex items-baseline gap-3">
-            <span class="w-10 shrink-0 text-xs text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity text-right">
+          <div class="flex items-baseline gap-4">
+            <span class="w-10 shrink-0 text-xs text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity text-right whitespace-nowrap">
               {formatShortTime(props.message.timestamp)}
             </span>
             <MessageContent content={props.message.content} />
           </div>
         }
       >
-        <div class="flex items-center gap-2">
-          <UserIdentity
+        <div class="flex items-start gap-4">
+          <Avatar
             name={props.message.authorName}
-            avatarUrl={props.message.authorAvatarUrl}
+            imageUrl={props.message.authorAvatarUrl}
             status={author()?.status}
             size="md"
           />
-          <span class="text-xs text-text-secondary">
-            {formatTimestamp(props.message.timestamp)}
-          </span>
-        </div>
-        <div class="ml-13">
-          <MessageContent content={props.message.content} />
+          <div class="min-w-0">
+            <div class="flex items-baseline gap-2">
+              <span class="text-sm font-semibold text-text-primary">
+                {props.message.authorName}
+              </span>
+              <span class="text-xs text-text-secondary">
+                {formatTimestamp(props.message.timestamp)}
+              </span>
+            </div>
+            <MessageContent content={props.message.content} />
+          </div>
         </div>
       </Show>
     </div>

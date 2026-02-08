@@ -53,17 +53,13 @@ const VoiceStatsPanel: Component<VoiceStatsPanelProps> = (props) => {
   const panelStyle = () => {
     if (!props.anchorRect) return {}
 
-    const left = props.anchorRect.left - 220 - 16
-    // Reserve more height when video stats are shown
+    const left = props.anchorRect.right + 16
     const reservedHeight = hasVideoStats() ? 350 : 250
-    const top = Math.max(
-      8,
-      Math.min(props.anchorRect.top - 100, window.innerHeight - reservedHeight)
-    )
+    const top = Math.max(8, Math.min(props.anchorRect.top, window.innerHeight - reservedHeight))
 
     return {
       position: "fixed" as const,
-      left: `${Math.max(8, left)}px`,
+      left: `${left}px`,
       top: `${top}px`
     }
   }

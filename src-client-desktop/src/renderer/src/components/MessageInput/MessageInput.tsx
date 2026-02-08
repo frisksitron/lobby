@@ -30,7 +30,7 @@ const MessageInput: Component = () => {
   }
 
   return (
-    <div class="px-2 mb-5">
+    <div class="mb-3">
       <Editor
         placeholder="Send a message..."
         disabled={isServerUnavailable()}

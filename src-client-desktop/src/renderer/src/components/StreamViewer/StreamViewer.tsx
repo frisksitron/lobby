@@ -147,7 +147,7 @@ const StreamViewer: Component<StreamViewerProps> = (props) => {
       <Show
         when={isFullscreen()}
         fallback={
-          <div class="flex flex-col h-[40%] min-h-[200px] max-h-[60%] border-b border-border bg-black">
+          <div class="flex flex-col h-[40%] min-h-[200px] max-h-[60%] bg-black rounded-xl ring-1 ring-white/8 overflow-hidden">
             <HeaderBar />
             <div class="flex-1 flex items-center justify-center overflow-hidden">
               <VideoElement />

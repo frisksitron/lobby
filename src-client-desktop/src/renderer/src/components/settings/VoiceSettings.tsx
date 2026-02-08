@@ -62,92 +62,100 @@ const VoiceSettings: Component = () => {
   const outputDevices = () => getPhysicalDevices(speakers())
 
   return (
-    <section>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-text-secondary mb-1">Input Device</label>
-          <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
-            <DeviceItem
-              label="System default"
-              isSelected={settings().inputDevice === "default"}
-              onSelect={() => updateSetting("inputDevice", "default")}
-            />
-            <For each={inputDevices()}>
-              {(device) => (
-                <DeviceItem
-                  label={device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
-                  isSelected={settings().inputDevice === device.deviceId}
-                  onSelect={() => updateSetting("inputDevice", device.deviceId)}
-                />
-              )}
-            </For>
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-text-secondary mb-1">Output Device</label>
-          <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
-            <DeviceItem
-              label="System default"
-              isSelected={settings().outputDevice === "default"}
-              onSelect={() => updateSetting("outputDevice", "default")}
-            />
-            <For each={outputDevices()}>
-              {(device) => (
-                <DeviceItem
-                  label={device.label || `Speakers ${device.deviceId.slice(0, 8)}`}
-                  isSelected={settings().outputDevice === device.deviceId}
-                  onSelect={() => updateSetting("outputDevice", device.deviceId)}
-                />
-              )}
-            </For>
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-text-secondary mb-1">
-            Noise Suppression
-          </label>
-          <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
-            <For each={NOISE_SUPPRESSION_OPTIONS}>
-              {(option) => (
-                <DeviceItem
-                  label={option.label}
-                  isSelected={settings().noiseSuppression === option.id}
-                  onSelect={() => updateSetting("noiseSuppression", option.id)}
-                />
-              )}
-            </For>
-          </div>
-        </div>
-
-        <div class="flex items-center justify-between">
+    <>
+      <section>
+        <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Devices</h3>
+        <div class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-text-secondary">Echo Cancellation</label>
-            <span class="text-xs text-text-secondary">Reduces echo from speakers</span>
+            <label class="block text-sm font-medium text-text-secondary mb-1">Input Device</label>
+            <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
+              <DeviceItem
+                label="System default"
+                isSelected={settings().inputDevice === "default"}
+                onSelect={() => updateSetting("inputDevice", "default")}
+              />
+              <For each={inputDevices()}>
+                {(device) => (
+                  <DeviceItem
+                    label={device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
+                    isSelected={settings().inputDevice === device.deviceId}
+                    onSelect={() => updateSetting("inputDevice", device.deviceId)}
+                  />
+                )}
+              </For>
+            </div>
           </div>
-          <Toggle
-            checked={settings().echoCancellation}
-            onChange={(checked) => updateSetting("echoCancellation", checked)}
-            disabled={isLoading()}
-          />
-        </div>
 
-        <div class="flex items-center justify-between">
           <div>
-            <label class="block text-sm font-medium text-text-secondary">Compressor</label>
-            <span class="text-xs text-text-secondary">
-              Limits loud sounds and boosts quiet ones
-            </span>
+            <label class="block text-sm font-medium text-text-secondary mb-1">Output Device</label>
+            <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
+              <DeviceItem
+                label="System default"
+                isSelected={settings().outputDevice === "default"}
+                onSelect={() => updateSetting("outputDevice", "default")}
+              />
+              <For each={outputDevices()}>
+                {(device) => (
+                  <DeviceItem
+                    label={device.label || `Speakers ${device.deviceId.slice(0, 8)}`}
+                    isSelected={settings().outputDevice === device.deviceId}
+                    onSelect={() => updateSetting("outputDevice", device.deviceId)}
+                  />
+                )}
+              </For>
+            </div>
           </div>
-          <Toggle
-            checked={settings().compressor}
-            onChange={(checked) => updateSetting("compressor", checked)}
-            disabled={isLoading()}
-          />
         </div>
-      </div>
-    </section>
+      </section>
+
+      <section>
+        <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Processing</h3>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-text-secondary mb-1">
+              Noise Suppression
+            </label>
+            <div class="border border-border rounded-lg p-1 space-y-0.5 bg-surface">
+              <For each={NOISE_SUPPRESSION_OPTIONS}>
+                {(option) => (
+                  <DeviceItem
+                    label={option.label}
+                    isSelected={settings().noiseSuppression === option.id}
+                    onSelect={() => updateSetting("noiseSuppression", option.id)}
+                  />
+                )}
+              </For>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="block text-sm font-medium text-text-secondary">Echo Cancellation</label>
+              <span class="text-xs text-text-secondary">Reduces echo from speakers</span>
+            </div>
+            <Toggle
+              checked={settings().echoCancellation}
+              onChange={(checked) => updateSetting("echoCancellation", checked)}
+              disabled={isLoading()}
+            />
+          </div>
+
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="block text-sm font-medium text-text-secondary">Compressor</label>
+              <span class="text-xs text-text-secondary">
+                Limits loud sounds and boosts quiet ones
+              </span>
+            </div>
+            <Toggle
+              checked={settings().compressor}
+              onChange={(checked) => updateSetting("compressor", checked)}
+              disabled={isLoading()}
+            />
+          </div>
+        </div>
+      </section>
+    </>
   )
 }
 
