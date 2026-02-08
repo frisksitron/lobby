@@ -90,6 +90,7 @@ export interface AppSettings {
   userVolumes: Record<string, number> // userId -> volume (0-200)
   echoCancellation: boolean
   compressor: boolean
+  compactMode: boolean
 }
 
 export interface ServerEntry {

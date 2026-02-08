@@ -6,6 +6,8 @@ import ThemeSettings from "../components/settings/ThemeSettings"
 import VoiceSettings from "../components/settings/VoiceSettings"
 import PanelLayout from "../components/shared/PanelLayout"
 import SidePanel from "../components/shared/SidePanel"
+import Toggle from "../components/shared/Toggle"
+import { useSettings } from "../stores/settings"
 
 const TABS = [
   { id: "account", label: "Account" },
@@ -17,6 +19,7 @@ const TABS = [
 const SettingsView: Component = () => {
   const params = useParams()
   const activeTab = () => params.tab || "account"
+  const { settings, updateSetting, isLoading } = useSettings()
 
   return (
     <PanelLayout
@@ -44,7 +47,7 @@ const SettingsView: Component = () => {
       }
       contentClass="overflow-y-auto"
     >
-      <div class="max-w-2xl space-y-4 py-6">
+      <div class="max-w-2xl space-y-4 py-6 pb-32">
         <Show when={activeTab() === "account"}>
           <AccountSettings />
         </Show>
@@ -53,6 +56,22 @@ const SettingsView: Component = () => {
         </Show>
         <Show when={activeTab() === "appearance"}>
           <ThemeSettings />
+          <section>
+            <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Chat</h3>
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="block text-sm font-medium text-text-secondary">Compact Mode</label>
+                <span class="text-xs text-text-secondary">
+                  Hide avatars and reduce spacing between messages
+                </span>
+              </div>
+              <Toggle
+                checked={settings().compactMode}
+                onChange={(checked) => updateSetting("compactMode", checked)}
+                disabled={isLoading()}
+              />
+            </div>
+          </section>
         </Show>
         <Show when={activeTab() === "about"}>
           <AboutSettings />

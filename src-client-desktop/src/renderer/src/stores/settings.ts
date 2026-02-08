@@ -13,7 +13,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   themeId: "discord",
   userVolumes: {},
   echoCancellation: false,
-  compressor: true
+  compressor: true,
+  compactMode: false
 }
 
 export type { AppSettings, NoiseSuppressionAlgorithm }
