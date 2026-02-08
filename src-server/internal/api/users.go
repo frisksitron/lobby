@@ -74,6 +74,7 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	updated := false
 	if req.Username != nil {
 		username := strings.TrimSpace(*req.Username)
 
@@ -98,10 +99,15 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 				notFound(w, "User not found")
 				return
 			}
+			if errors.Is(err, db.ErrDuplicate) {
+				conflict(w, "Username already taken")
+				return
+			}
 			log.Printf("Error updating username: %v", err)
 			internalError(w)
 			return
 		}
+		updated = true
 	}
 
 	// Return updated user
@@ -116,15 +122,17 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	avatar := ""
-	if user.AvatarURL != nil {
-		avatar = *user.AvatarURL
+	if updated {
+		avatar := ""
+		if user.AvatarURL != nil {
+			avatar = *user.AvatarURL
+		}
+		h.hub.BroadcastDispatch(ws.EventUserUpdate, ws.UserUpdatePayload{
+			ID:       user.ID,
+			Username: user.Username,
+			Avatar:   avatar,
+		})
 	}
-	h.hub.BroadcastDispatch(ws.EventUserUpdate, ws.UserUpdatePayload{
-		ID:       user.ID,
-		Username: user.Username,
-		Avatar:   avatar,
-	})
 
 	writeJSON(w, http.StatusOK, user)
 }

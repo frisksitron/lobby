@@ -70,6 +70,7 @@ func NewServer(
 	r.Use(securityHeadersMiddleware)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(maxBodySizeMiddleware(1 << 20)) // 1 MB
 		r.Get("/server/info", serverInfoHandler.GetInfo)
 
 		r.Route("/auth", func(r chi.Router) {
@@ -127,6 +128,15 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func maxBodySizeMiddleware(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func securityHeadersMiddleware(next http.Handler) http.Handler {

@@ -153,12 +153,14 @@ func (h *Hub) Run() {
 		case client := <-h.unregister:
 			h.mu.Lock()
 			wasInVoice := false
+			wasActiveClient := false
 			var userID string
 			if client.user != nil {
 				userID = client.user.ID
+				wasActiveClient = h.userClients[userID] == client
 				// Only clean up voice if this is still the active client
 				// (not already replaced by registerSync)
-				if h.userClients[userID] == client {
+				if wasActiveClient {
 					if _, inVoice := h.voiceParticipants[userID]; inVoice {
 						delete(h.voiceParticipants, userID)
 						wasInVoice = true
@@ -180,7 +182,7 @@ func (h *Hub) Run() {
 				h.cleanupVoiceForUser(userID)
 			}
 
-			if client.user != nil {
+			if client.user != nil && wasActiveClient {
 				h.broadcastPresenceUpdate(client.user.ID, "offline", nil)
 				h.BroadcastDispatch(EventUserLeft, UserLeftPayload{
 					UserID: client.user.ID,

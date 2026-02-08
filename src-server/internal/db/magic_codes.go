@@ -42,13 +42,13 @@ func (r *MagicCodeRepository) Create(email, code string, expiresAt time.Time) (*
 	}, nil
 }
 
-func (r *MagicCodeRepository) FindByEmailAndCode(email, code string) (*models.MagicCode, error) {
+func (r *MagicCodeRepository) FindLatestByEmail(email string) (*models.MagicCode, error) {
 	var mc models.MagicCode
 	var usedAt sql.NullTime
 
 	err := r.db.QueryRow(
-		`SELECT id, email, code, expires_at, used_at, attempts, created_at FROM magic_codes WHERE email = ? AND code = ?`,
-		email, code,
+		`SELECT id, email, code, expires_at, used_at, attempts, created_at FROM magic_codes WHERE email = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+		email,
 	).Scan(&mc.ID, &mc.Email, &mc.Code, &mc.ExpiresAt, &usedAt, &mc.Attempts, &mc.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {

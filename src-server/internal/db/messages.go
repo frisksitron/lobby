@@ -64,7 +64,7 @@ func (r *MessageRepository) GetHistory(beforeID string, limit int) ([]*models.Me
 	}
 	defer rows.Close()
 
-	var messages []*models.Message
+	messages := make([]*models.Message, 0)
 	for rows.Next() {
 		var m models.Message
 		var editedAt sql.NullTime

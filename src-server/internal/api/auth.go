@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log"
@@ -65,7 +66,7 @@ func (h *AuthHandler) RequestMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Email = strings.TrimSpace(req.Email)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	if _, err := mail.ParseAddress(req.Email); err != nil {
 		badRequest(w, "Invalid email format")
 		return
@@ -118,6 +119,8 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
 	if req.Email == "" || req.Code == "" {
 		badRequest(w, "Email and code are required")
 		return
@@ -134,7 +137,7 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	magicCode, err := h.magicCodes.FindByEmailAndCode(req.Email, req.Code)
+	magicCode, err := h.magicCodes.FindLatestByEmail(req.Email)
 	if errors.Is(err, db.ErrNotFound) {
 		writeError(w, http.StatusUnauthorized, ErrCodeInvalidCredentials, "Invalid code")
 		return
@@ -153,6 +156,11 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 	}
 	if newAttempts < 0 {
 		writeError(w, http.StatusUnauthorized, ErrCodeInvalidCredentials, "Too many attempts")
+		return
+	}
+
+	if subtle.ConstantTimeCompare([]byte(req.Code), []byte(magicCode.Code)) != 1 {
+		writeError(w, http.StatusUnauthorized, ErrCodeInvalidCredentials, "Invalid code")
 		return
 	}
 

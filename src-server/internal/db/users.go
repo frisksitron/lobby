@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"lobby/internal/constants"
@@ -44,7 +45,7 @@ func (r *UserRepository) Create(email string) (*models.User, error) {
 		ID:        id,
 		Email:     email,
 		CreatedAt: now,
-		UpdatedAt: nil,
+		UpdatedAt: &now,
 	}, nil
 }
 
@@ -58,7 +59,7 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 
 func (r *UserRepository) FindAll() ([]*models.User, error) {
 	rows, err := r.db.Query(
-		`SELECT id, username, email, avatar_url, created_at, updated_at FROM users ORDER BY username`,
+		`SELECT id, username, avatar_url, created_at, updated_at FROM users ORDER BY username`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying users: %w", err)
@@ -70,7 +71,7 @@ func (r *UserRepository) FindAll() ([]*models.User, error) {
 		var u models.User
 		var updatedAt sql.NullTime
 
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.AvatarURL, &u.CreatedAt, &updatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.AvatarURL, &u.CreatedAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scanning user: %w", err)
 		}
 
@@ -87,6 +88,9 @@ func (r *UserRepository) UpdateUsername(id, username string) error {
 		username, time.Now().UTC(), id,
 	)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return ErrDuplicate
+		}
 		return fmt.Errorf("updating username: %w", err)
 	}
 	return checkRowsAffected(result)

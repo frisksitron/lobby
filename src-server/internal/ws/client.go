@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -64,6 +65,7 @@ type Client struct {
 	conn          *websocket.Conn
 	send          chan *WSMessage
 	connCloseOnce sync.Once
+	sendCloseOnce sync.Once
 
 	// Lifecycle state (replaces: closeOnce, done, identified)
 	state atomic.Int32
@@ -298,10 +300,12 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 			// Registration successful
 		case <-time.After(registerTimeout):
 			log.Printf("Registration timeout for client %s", c.user.ID)
+			c.Close()
 			return
 		}
 	case <-time.After(registerTimeout):
 		log.Printf("Registration send timeout for client %s", c.user.ID)
+		c.Close()
 		return
 	}
 
@@ -334,7 +338,7 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 
 	nonce, _ := data["nonce"].(string)
 
-	if len(content) > maxMessageContentLength {
+	if utf8.RuneCountInString(content) > maxMessageContentLength {
 		c.send <- &WSMessage{
 			Op:   OpDispatch,
 			Type: EventError,
@@ -491,8 +495,8 @@ func (c *Client) transitionTo(newState ClientState) bool {
 
 // CloseSend closes the send channel (called by hub during cleanup)
 func (c *Client) CloseSend() {
+	c.sendCloseOnce.Do(func() { close(c.send) })
 	if c.transitionTo(ClientStateClosing) {
-		close(c.send)
 		c.connCloseOnce.Do(func() { c.conn.Close() })
 		c.transitionTo(ClientStateClosed)
 	}
@@ -752,12 +756,14 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 		return
 	}
 
-	// Speaking: broadcast directly with no rate limit
+	// Speaking: broadcast directly with no rate limit (must be in voice)
 	if speaking, ok := data["speaking"].(bool); ok {
-		c.hub.BroadcastDispatch(EventVoiceSpeaking, VoiceSpeakingPayload{
-			UserID:   c.user.ID,
-			Speaking: speaking,
-		})
+		if c.hub.GetUserVoiceState(c.user.ID) != nil {
+			c.hub.BroadcastDispatch(EventVoiceSpeaking, VoiceSpeakingPayload{
+				UserID:   c.user.ID,
+				Speaking: speaking,
+			})
+		}
 	}
 
 	// Mute/deafen changes
@@ -886,6 +892,11 @@ func (c *Client) handleScreenShareStop() {
 
 func (c *Client) handleScreenShareSubscribe(msg *WSMessage) {
 	if !c.IsIdentified() {
+		return
+	}
+
+	// Must be in voice to subscribe to screen shares
+	if c.hub.GetUserVoiceState(c.user.ID) == nil {
 		return
 	}
 
