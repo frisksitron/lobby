@@ -75,10 +75,6 @@ func NewPeer(id string, sfu *SFU) (*Peer, error) {
 
 	conn.OnTrack(func(remoteTrack *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		trackKind := remoteTrack.Kind().String()
-		log.Printf("[SFU] [DEBUG] Peer %s OnTrack fired: kind=%s, id=%s, streamID=%s, ssrc=%d",
-			id, trackKind, remoteTrack.ID(), remoteTrack.StreamID(), remoteTrack.SSRC())
-		log.Printf("[SFU] [DEBUG] Peer %s OnTrack codec: mimeType=%s, clockRate=%d, channels=%d",
-			id, remoteTrack.Codec().MimeType, remoteTrack.Codec().ClockRate, remoteTrack.Codec().Channels)
 
 		localTrack, err := webrtc.NewTrackLocalStaticRTP(
 			remoteTrack.Codec().RTPCodecCapability,
@@ -86,21 +82,18 @@ func NewPeer(id string, sfu *SFU) (*Peer, error) {
 			id,
 		)
 		if err != nil {
-			log.Printf("[SFU] [DEBUG] Failed to create local track for %s: %v", id, err)
+			log.Printf("[SFU] Failed to create local track for %s: %v", id, err)
 			return
 		}
-		log.Printf("[SFU] [DEBUG] Peer %s created local track for %s", id, trackKind)
 
 		peer.mu.Lock()
 		peer.localTracks[trackKind] = localTrack
 		if remoteTrack.Kind() == webrtc.RTPCodecTypeVideo {
 			peer.videoReceiver = receiver
 			peer.videoSSRC = uint32(remoteTrack.SSRC())
-			log.Printf("[SFU] [DEBUG] Peer %s stored video receiver and SSRC=%d", id, peer.videoSSRC)
 		}
 		peer.mu.Unlock()
 
-		log.Printf("[SFU] [DEBUG] Peer %s calling OnPeerTrackReady for %s", id, trackKind)
 		sfu.OnPeerTrackReady(id, trackKind, localTrack)
 		peer.wg.Add(1)
 		go peer.forwardTrack(remoteTrack, localTrack, trackKind)
@@ -113,27 +106,16 @@ func (p *Peer) forwardTrack(remote *webrtc.TrackRemote, local *webrtc.TrackLocal
 	defer p.wg.Done()
 
 	buf := make([]byte, constants.RTPPacketBufferBytes)
-	packetCount := 0
-	totalBytes := 0
-	lastLogTime := time.Now()
 
 	for {
 		n, _, err := remote.Read(buf)
 		if err != nil {
-			log.Printf("[SFU] Peer %s %s track read ended: %v (forwarded %d packets, %d bytes)", p.ID, kind, err, packetCount, totalBytes)
+			log.Printf("[SFU] Peer %s %s track read ended: %v", p.ID, kind, err)
 			return
 		}
 		if _, err := local.Write(buf[:n]); err != nil {
 			log.Printf("[SFU] Peer %s %s track write error: %v", p.ID, kind, err)
 			return
-		}
-		packetCount++
-		totalBytes += n
-
-		// Log periodically for video to confirm packets are flowing
-		if kind == "video" && time.Since(lastLogTime) > 5*time.Second {
-			log.Printf("[SFU] [DEBUG] Peer %s video: forwarded %d packets, %d bytes total", p.ID, packetCount, totalBytes)
-			lastLogTime = time.Now()
 		}
 	}
 }
@@ -317,7 +299,7 @@ func (p *Peer) RequestKeyframe() error {
 	})
 }
 
-func (p *Peer) NeedsRenegotiation() bool {
+func (p *Peer) IsReadyForRenegotiation() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.conn.SignalingState() == webrtc.SignalingStateStable

@@ -216,11 +216,6 @@ class ScreenShareManager {
   }
 
   handleRemoteVideoTrack(track: MediaStreamTrack, streamId: string): void {
-    log.info(`[DEBUG] handleRemoteVideoTrack called: streamId=${streamId}`)
-    log.info(
-      `[DEBUG] Track state: id=${track.id}, kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`
-    )
-
     // streamId is the user ID of the streamer
     if (this.currentViewingStreamerId !== streamId) {
       log.info(`Received video track from ${streamId} but not subscribed`)
@@ -228,13 +223,9 @@ class ScreenShareManager {
     }
 
     const stream = new MediaStream([track])
-    log.info(`[DEBUG] Created MediaStream with track, stream.active=${stream.active}`)
 
     if (this.remoteStreamCallback) {
-      log.info("[DEBUG] Calling remoteStreamCallback with stream")
       this.remoteStreamCallback(stream, streamId)
-    } else {
-      log.warn("[DEBUG] No remoteStreamCallback set!")
     }
 
     // Handle track ending
@@ -243,14 +234,6 @@ class ScreenShareManager {
       if (this.remoteStreamCallback && this.currentViewingStreamerId === streamId) {
         this.remoteStreamCallback(null, null)
       }
-    }
-
-    // Monitor track state changes
-    track.onmute = () => {
-      log.info("[DEBUG] Video track muted event fired")
-    }
-    track.onunmute = () => {
-      log.info("[DEBUG] Video track unmuted event fired")
     }
 
     log.info(`Receiving video stream from ${streamId}`)

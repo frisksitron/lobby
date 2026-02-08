@@ -108,14 +108,25 @@ func (h *Hub) Run() {
 		case req := <-h.registerSync:
 			h.mu.Lock()
 			h.clients[req.client] = true
+			wasInVoice := false
+			var replacedUserID string
 			if req.client.user != nil {
-				if old, ok := h.userClients[req.client.user.ID]; ok && old != req.client {
+				replacedUserID = req.client.user.ID
+				if old, ok := h.userClients[replacedUserID]; ok && old != req.client {
+					if _, inVoice := h.voiceParticipants[replacedUserID]; inVoice {
+						delete(h.voiceParticipants, replacedUserID)
+						wasInVoice = true
+					}
 					old.Close()
 					delete(h.clients, old)
 				}
-				h.userClients[req.client.user.ID] = req.client
+				h.userClients[replacedUserID] = req.client
 			}
 			h.mu.Unlock()
+
+			if wasInVoice {
+				h.cleanupVoiceForUser(replacedUserID)
+			}
 
 			close(req.done)
 
@@ -137,9 +148,13 @@ func (h *Hub) Run() {
 			var userID string
 			if client.user != nil {
 				userID = client.user.ID
-				_, wasInVoice = h.voiceParticipants[userID]
-				if wasInVoice {
-					delete(h.voiceParticipants, userID)
+				// Only clean up voice if this is still the active client
+				// (not already replaced by registerSync)
+				if h.userClients[userID] == client {
+					if _, inVoice := h.voiceParticipants[userID]; inVoice {
+						delete(h.voiceParticipants, userID)
+						wasInVoice = true
+					}
 				}
 			}
 			if _, ok := h.clients[client]; ok {
@@ -153,22 +168,8 @@ func (h *Hub) Run() {
 			}
 			h.mu.Unlock()
 
-			// Clean up screen share state
-			if h.screenShare != nil && userID != "" {
-				h.screenShare.OnUserDisconnect(userID)
-			}
-
-			if wasInVoice && h.sfu != nil {
-				h.sfu.RemovePeer(userID)
-			}
-
 			if wasInVoice {
-				h.BroadcastDispatch(EventVoiceStateUpdate, VoiceStateUpdatePayload{
-					UserID:   userID,
-					InVoice:  false,
-					Muted:    false,
-					Deafened: false,
-				})
+				h.cleanupVoiceForUser(userID)
 			}
 
 			if client.user != nil {
@@ -546,6 +547,23 @@ func (h *Hub) HandleScreenShareReady(userID string) {
 
 	log.Printf("[Hub] Screen share ready from %s, triggering renegotiation", userID)
 	h.sfu.TriggerRenegotiation(userID)
+}
+
+// cleanupVoiceForUser tears down SFU peer, screen share, and broadcasts voice-leave.
+// Must be called outside of h.mu lock.
+func (h *Hub) cleanupVoiceForUser(userID string) {
+	if h.sfu != nil {
+		h.sfu.RemovePeer(userID)
+	}
+	if h.screenShare != nil {
+		h.screenShare.OnUserDisconnect(userID)
+	}
+	h.BroadcastDispatch(EventVoiceStateUpdate, VoiceStateUpdatePayload{
+		UserID:   userID,
+		InVoice:  false,
+		Muted:    false,
+		Deafened: false,
+	})
 }
 
 // IsUserInVoice returns true if the user is currently in voice

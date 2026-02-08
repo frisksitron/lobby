@@ -53,6 +53,7 @@ Three-process Electron architecture:
   - `theme.ts` — Theme state
   - `ui.ts` — UI state (modals, toasts)
   - `auth-flow.ts` — Authentication flow state
+  - `updater.ts` — Auto-update state
 - `lib/` — Business logic libraries:
   - `api/` — HTTP REST client and auth endpoints
   - `auth/` — Token refresh management
@@ -66,7 +67,7 @@ Three-process Electron architecture:
   - `logger/` — Dev-mode logging utility
   - `reactive.ts` — Reactive helpers
   - `storage.ts` — Token storage helpers (IPC wrappers)
-- `components/` — UI components organized by feature (Header, MessageFeed, MessageInput, Sidebar, modals, settings, shared)
+- `components/` — UI components organized by feature (Header, MessageFeed, MessageInput, ScreenPicker, Sidebar, StreamViewer, settings, shared)
 - `src/shared/types.ts` — Shared type definitions (User, Server, Message, VoiceState, Theme, etc.)
 
 ### Data Flow

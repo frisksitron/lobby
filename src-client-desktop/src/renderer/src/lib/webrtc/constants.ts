@@ -12,7 +12,6 @@ export const AUDIO_SAMPLE_RATE = 48000 // Sample rate for Opus codec
 export const AUDIO_CHANNELS = 1 // Mono for voice
 
 // RTCPeerConnection configuration
-export const ICE_CANDIDATE_POOL_SIZE = 5
 export const BUNDLE_POLICY = "max-bundle" as const
 export const RTCP_MUX_POLICY = "require" as const
 

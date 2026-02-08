@@ -6,10 +6,7 @@ import {
 import { type Component, createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { User } from "../../../../shared/types"
-import { createLogger } from "../../lib/logger"
 import { useUsers } from "../../stores/users"
-
-const log = createLogger("StreamViewer")
 
 interface StreamViewerProps {
   stream: MediaStream | null
@@ -27,60 +24,13 @@ const StreamViewer: Component<StreamViewerProps> = (props) => {
   const { getUserById } = useUsers()
   const [isFullscreen, setIsFullscreen] = createSignal(false)
 
-  // Log when component renders
-  log.info(`[DEBUG] StreamViewer component rendering`)
-
   // Bind stream to video element
   // Track isFullscreen() so effect re-runs when switching modes (new video element is created)
   createEffect(() => {
-    const _fullscreen = isFullscreen()
-    log.info(
-      `[DEBUG] createEffect running - videoRef: ${!!videoRef}, stream: ${!!props.stream}, streamerId: ${props.streamerId}, fullscreen: ${_fullscreen}`
-    )
+    isFullscreen()
     if (videoRef && props.stream) {
-      log.info(`[DEBUG] Setting srcObject on video element`)
-      log.info(`[DEBUG] Stream active: ${props.stream.active}`)
-      const videoTracks = props.stream.getVideoTracks()
-      log.info(`[DEBUG] Stream has ${videoTracks.length} video tracks`)
-      for (const track of videoTracks) {
-        log.info(
-          `[DEBUG] Video track: id=${track.id}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`
-        )
-      }
-
       videoRef.srcObject = props.stream
-
-      // Add event listeners for debugging
-      videoRef.onloadedmetadata = () => {
-        log.info(`[DEBUG] Video loadedmetadata: ${videoRef?.videoWidth}x${videoRef?.videoHeight}`)
-      }
-      videoRef.onloadeddata = () => {
-        log.info("[DEBUG] Video loadeddata event")
-      }
-      videoRef.onplay = () => {
-        log.info("[DEBUG] Video play event")
-      }
-      videoRef.onplaying = () => {
-        log.info("[DEBUG] Video playing event")
-      }
-      videoRef.onerror = (e) => {
-        log.error("[DEBUG] Video error:", e)
-      }
-      videoRef.onstalled = () => {
-        log.warn("[DEBUG] Video stalled event")
-      }
-      videoRef.onwaiting = () => {
-        log.info("[DEBUG] Video waiting event")
-      }
-
-      // Explicitly call play() as fallback for autoplay
-      videoRef.play().catch((err) => {
-        log.warn("[DEBUG] Video play() failed:", err)
-      })
-
-      log.info(
-        `[DEBUG] Video element paused: ${videoRef.paused}, readyState: ${videoRef.readyState}`
-      )
+      videoRef.play().catch(() => {})
     }
   })
 

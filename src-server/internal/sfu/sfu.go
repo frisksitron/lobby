@@ -3,7 +3,6 @@ package sfu
 import (
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -54,7 +53,7 @@ func New(config *Config) (*SFU, error) {
 		RTPCodecCapability: webrtc.RTPCodecCapability{
 			MimeType:    webrtc.MimeTypeOpus,
 			ClockRate:   48000,
-			Channels:    2,
+			Channels:    1,
 			SDPFmtpLine: "minptime=10;useinbandfec=1",
 		},
 		PayloadType: 111,
@@ -245,18 +244,12 @@ func (s *SFU) SendInitialOffer(userID string) error {
 }
 
 func (s *SFU) HandleOffer(userID string, sdp string) (string, error) {
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - SDP length: %d", userID, len(sdp))
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - has video m-line: %v", userID, strings.Contains(sdp, "m=video"))
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - has audio m-line: %v", userID, strings.Contains(sdp, "m=audio"))
-
 	peer := s.GetPeer(userID)
 	if peer == nil {
-		log.Printf("[SFU] [DEBUG] HandleOffer from %s - peer not found!", userID)
 		return "", NewFatalError(userID, "HandleOffer", ErrPeerNotFound)
 	}
 
 	if peer.IsClosed() {
-		log.Printf("[SFU] [DEBUG] HandleOffer from %s - peer is closed!", userID)
 		return "", NewPeerClosedError(userID, "HandleOffer")
 	}
 
@@ -265,8 +258,6 @@ func (s *SFU) HandleOffer(userID string, sdp string) (string, error) {
 	// The client (polite peer) will rollback and accept our offer instead.
 	// Exception: Accept offer if user has pending screen share (they're sending video track).
 	signalingState := peer.SignalingState()
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - current signaling state: %s", userID, signalingState.String())
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - hasPendingScreenShare: %v", userID, s.HasPendingScreenShare(userID))
 	if signalingState != webrtc.SignalingStateStable {
 		// Accept offer if user has pending screen share (they're trying to send the video track)
 		if s.HasPendingScreenShare(userID) {
@@ -286,36 +277,27 @@ func (s *SFU) HandleOffer(userID string, sdp string) (string, error) {
 		Type: webrtc.SDPTypeOffer,
 		SDP:  sdp,
 	}
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - setting remote description...", userID)
 	if err := peer.SetRemoteDescription(offer); err != nil {
-		log.Printf("[SFU] [DEBUG] HandleOffer from %s - SetRemoteDescription failed: %v", userID, err)
 		if err == ErrPeerNotActive {
 			return "", NewPeerClosedError(userID, "HandleOffer.SetRemoteDescription")
 		}
 		return "", NewTransientError(userID, "HandleOffer.SetRemoteDescription", err)
 	}
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - SetRemoteDescription succeeded", userID)
 
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - creating answer...", userID)
 	answer, err := peer.CreateAnswer()
 	if err != nil {
-		log.Printf("[SFU] [DEBUG] HandleOffer from %s - CreateAnswer failed: %v", userID, err)
 		if err == ErrPeerNotActive {
 			return "", NewPeerClosedError(userID, "HandleOffer.CreateAnswer")
 		}
 		return "", NewTransientError(userID, "HandleOffer.CreateAnswer", err)
 	}
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - answer created, SDP length: %d", userID, len(answer.SDP))
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - answer has video m-line: %v", userID, strings.Contains(answer.SDP, "m=video"))
 
 	if err := peer.SetLocalDescription(answer); err != nil {
-		log.Printf("[SFU] [DEBUG] HandleOffer from %s - SetLocalDescription failed: %v", userID, err)
 		if err == ErrPeerNotActive {
 			return "", NewPeerClosedError(userID, "HandleOffer.SetLocalDescription")
 		}
 		return "", NewTransientError(userID, "HandleOffer.SetLocalDescription", err)
 	}
-	log.Printf("[SFU] [DEBUG] HandleOffer from %s - answer set as local description, returning", userID)
 
 	return answer.SDP, nil
 }
@@ -467,7 +449,7 @@ func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 		return
 	}
 
-	if !peer.NeedsRenegotiation() {
+	if !peer.IsReadyForRenegotiation() {
 		// Mark for later - will be processed when HandleAnswer brings us to stable state
 		s.pendingRenegotiations[userID] = true
 		s.mu.Unlock()

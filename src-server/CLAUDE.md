@@ -39,7 +39,7 @@ internal/
 
 ### Request Flow
 
-1. HTTP requests route through chi middleware (logging, recovery, CORS, security headers, auth)
+1. HTTP requests route through chi middleware (logging, recovery, CORS via `allowed_origins` config, security headers, auth)
 2. Auth endpoints issue magic codes via email, verify them, return JWT access + refresh tokens
 3. WebSocket upgrade at `/ws` (token in query string) registers client with the Hub
 4. Hub broadcasts events (presence, messages, typing, voice state) to connected clients
@@ -56,7 +56,7 @@ internal/
 
 ### WebSocket Protocol
 
-Client → Server commands: `IDENTIFY`, `RESUME`, `PRESENCE_SET`, `MESSAGE_SEND`, `TYPING`, `VOICE_JOIN`, `VOICE_LEAVE`, `VOICE_STATE_SET`, `RTC_OFFER`, `RTC_ANSWER`, `RTC_ICE_CANDIDATE`, `SCREEN_SHARE_START`, `SCREEN_SHARE_STOP`, `SCREEN_SHARE_SUBSCRIBE`, `SCREEN_SHARE_UNSUBSCRIBE`, `SCREEN_SHARE_READY`
+Client → Server commands: `IDENTIFY`, `PRESENCE_SET`, `MESSAGE_SEND`, `TYPING`, `VOICE_JOIN`, `VOICE_LEAVE`, `VOICE_STATE_SET`, `RTC_OFFER`, `RTC_ANSWER`, `RTC_ICE_CANDIDATE`, `SCREEN_SHARE_START`, `SCREEN_SHARE_STOP`, `SCREEN_SHARE_SUBSCRIBE`, `SCREEN_SHARE_UNSUBSCRIBE`, `SCREEN_SHARE_READY`
 
 Server → Client events: `PRESENCE_UPDATE`, `MESSAGE_CREATE`, `TYPING_START`, `TYPING_STOP`, `USER_UPDATE`, `VOICE_STATE_UPDATE`, `RTC_READY`, `RTC_OFFER`, `RTC_ANSWER`, `RTC_ICE_CANDIDATE`, `VOICE_SPEAKING`, `USER_JOINED`, `USER_LEFT`, `SCREEN_SHARE_UPDATE`, `ERROR`
 
@@ -66,7 +66,7 @@ SQLite3 with WAL mode. Tables: `users`, `magic_codes`, `refresh_tokens`, `messag
 
 ## Configuration
 
-All config via YAML files (`config.yaml` / `config.dev.yaml`). No environment variables. Key sections: `server`, `database`, `auth`, `email`, `sfu`. JWT secret must be ≥32 chars. Dev config uses mailpit on localhost:1025 for SMTP.
+All config via YAML files (`config.yaml` / `config.dev.yaml`). No environment variables. Key sections: `server`, `database`, `auth`, `email`, `sfu`. JWT secret must be ≥32 chars. Dev config uses mailpit on localhost:1025 for SMTP. `server.allowed_origins` controls CORS and WebSocket origin validation (defaults to `[base_url]`).
 
 ## Deployment
 
