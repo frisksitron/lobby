@@ -1,0 +1,12 @@
+data/
+*.db
+*.db-shm
+*.db-wal
+lobby
+lobby-linux-amd64
+config.yaml
+config.dev.yaml
+docker-compose*.yml
+Caddyfile
+.env
+.env.example

@@ -1,0 +1,3 @@
+{$LOBBY_DOMAIN} {
+	reverse_proxy lobby:8080
+}

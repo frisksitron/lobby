@@ -3,7 +3,7 @@ package ws
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -81,13 +81,13 @@ func NewHub(jwtService *auth.JWTService, userRepo *db.UserRepository, messageRep
 	}
 	h.sfu = sfuInstance
 	h.sfu.SetSignalingCallback(h.handleSfuSignaling)
-	log.Printf("[Hub] SFU initialized")
+	slog.Info("SFU initialized", "component", "hub")
 
 	// Initialize screen share manager
 	h.screenShare = sfu.NewScreenShareManager(sfuInstance)
 	h.screenShare.SetUpdateCallback(h.handleScreenShareUpdate)
 	sfuInstance.SetScreenShareManager(h.screenShare)
-	log.Printf("[Hub] ScreenShare manager initialized")
+	slog.Info("screenshare manager initialized", "component", "hub")
 
 	return h, nil
 }
@@ -105,7 +105,7 @@ func (h *Hub) Run() {
 			if h.sfu != nil {
 				h.sfu.Close()
 			}
-			log.Printf("[Hub] Shutdown complete")
+			slog.Info("shutdown complete", "component", "hub")
 			return
 
 		case req := <-h.registerSync:
@@ -217,12 +217,12 @@ func (h *Hub) sendToClientLocked(client *Client, msg *WSMessage) {
 
 		// Log warning periodically (every 10 drops)
 		if dropped%10 == 1 {
-			log.Printf("[Hub] Warning: dropped %d messages for slow client %s (buffer full)", dropped, userID)
+			slog.Warn("dropped messages for slow client", "component", "hub", "dropped", dropped, "user_id", userID)
 		}
 
 		// Disconnect clients that fall too far behind
 		if dropped >= maxDroppedMessagesBeforeDisconnect {
-			log.Printf("[Hub] Disconnecting slow client %s: dropped %d messages", userID, dropped)
+			slog.Warn("disconnecting slow client", "component", "hub", "user_id", userID, "dropped", dropped)
 			// Close will be handled by the client's pumps
 			client.Close()
 		}
@@ -372,7 +372,7 @@ func (h *Hub) broadcastPresenceUpdate(userID string, status string, except *Clie
 	}
 	h.mu.RUnlock()
 
-	log.Printf("User %s presence changed to %s", userID, status)
+	slog.Debug("presence changed", "component", "hub", "user_id", userID, "status", status)
 }
 
 func (h *Hub) MessageRepo() *db.MessageRepository {
@@ -491,7 +491,7 @@ func (h *Hub) handleSfuError(userID string, err error) {
 	var peerErr *sfu.PeerError
 	if !errors.As(err, &peerErr) {
 		// Not a categorized error, log it
-		log.Printf("[Hub] SFU error for user %s: %v", userID, err)
+		slog.Error("SFU error", "component", "hub", "user_id", userID, "error", err)
 		return
 	}
 
@@ -499,9 +499,9 @@ func (h *Hub) handleSfuError(userID string, err error) {
 	case sfu.ErrKindPeerClosed:
 		// Normal closure, no action needed
 	case sfu.ErrKindTransient:
-		log.Printf("[Hub] Transient SFU error for user %s: %v", userID, err)
+		slog.Warn("transient SFU error", "component", "hub", "user_id", userID, "error", err)
 	case sfu.ErrKindFatal:
-		log.Printf("[Hub] Fatal SFU error for user %s: %v", userID, err)
+		slog.Error("fatal SFU error", "component", "hub", "user_id", userID, "error", err)
 		// Clean up the peer on fatal errors
 		h.sfu.RemovePeer(userID)
 	}

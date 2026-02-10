@@ -1,0 +1,62 @@
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    env_file: .env
+    depends_on:
+      - lobby
+
+  lobby:
+    image: ghcr.io/frisksitron/lobby/server:latest
+    restart: unless-stopped
+    ports:
+      - "${LOBBY_SFU_MIN_PORT:-50000}-${LOBBY_SFU_MAX_PORT:-50100}:${LOBBY_SFU_MIN_PORT:-50000}-${LOBBY_SFU_MAX_PORT:-50100}/udp"
+    env_file: .env
+    environment:
+      LOBBY_DATABASE_PATH: /data/lobby.db
+    volumes:
+      - lobby-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  coturn:
+    image: coturn/coturn
+    restart: unless-stopped
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "49152-49252:49152-49252/udp"
+    command: >-
+      -n
+      --listening-port=3478
+      --min-port=49152
+      --max-port=49252
+      --use-auth-secret
+      --static-auth-secret=${LOBBY_TURN_SECRET}
+      --realm=${LOBBY_DOMAIN}
+      --external-ip=${LOBBY_SFU_PUBLIC_IP}
+      --no-tls
+      --no-dtls
+      --log-file=stdout
+    env_file: .env
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  lobby-data:
+  caddy-data:
+  caddy-config:

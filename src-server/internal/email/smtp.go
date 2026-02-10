@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/smtp"
 	"time"
@@ -110,7 +110,7 @@ func (s *SMTPService) send(to, subject, body string) error {
 	}
 
 	if err := client.Quit(); err != nil {
-		log.Printf("[SMTP] Warning: QUIT command failed: %v", err)
+		slog.Warn("smtp QUIT command failed", "component", "email", "error", err)
 	}
 
 	return nil

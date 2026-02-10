@@ -2,7 +2,7 @@ package db
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -25,7 +25,7 @@ func NewCleanupService(magicCodes *MagicCodeRepository, refreshTokens *RefreshTo
 }
 
 func (s *CleanupService) Start(ctx context.Context) {
-	log.Printf("[Cleanup] Starting token cleanup service (interval: %v)", s.interval)
+	slog.Info("starting token cleanup service", "component", "cleanup", "interval", s.interval)
 
 	s.runCleanup()
 
@@ -35,7 +35,7 @@ func (s *CleanupService) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[Cleanup] Stopping token cleanup service")
+			slog.Info("stopping token cleanup service", "component", "cleanup")
 			return
 		case <-ticker.C:
 			s.runCleanup()
@@ -46,15 +46,15 @@ func (s *CleanupService) Start(ctx context.Context) {
 func (s *CleanupService) runCleanup() {
 	magicDeleted, err := s.magicCodes.DeleteExpired()
 	if err != nil {
-		log.Printf("[Cleanup] Error deleting expired magic codes: %v", err)
+		slog.Error("error deleting expired magic codes", "component", "cleanup", "error", err)
 	} else if magicDeleted > 0 {
-		log.Printf("[Cleanup] Deleted %d expired magic codes", magicDeleted)
+		slog.Info("deleted expired magic codes", "component", "cleanup", "count", magicDeleted)
 	}
 
 	refreshDeleted, err := s.refreshTokens.DeleteExpired()
 	if err != nil {
-		log.Printf("[Cleanup] Error deleting expired refresh tokens: %v", err)
+		slog.Error("error deleting expired refresh tokens", "component", "cleanup", "error", err)
 	} else if refreshDeleted > 0 {
-		log.Printf("[Cleanup] Deleted %d expired refresh tokens", refreshDeleted)
+		slog.Info("deleted expired refresh tokens", "component", "cleanup", "count", refreshDeleted)
 	}
 }

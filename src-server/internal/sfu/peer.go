@@ -3,7 +3,7 @@ package sfu
 import (
 	"fmt"
 	"lobby/internal/constants"
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -62,13 +62,13 @@ func NewPeer(id string, sfu *SFU) (*Peer, error) {
 	})
 
 	conn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf("[SFU] Peer %s connection state: %s", id, state.String())
+		slog.Debug("peer connection state changed", "component", "sfu", "peer_id", id, "state", state.String())
 		switch state {
 		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
 			peer.Close()
 		case webrtc.PeerConnectionStateConnected:
 			if peer.transitionTo(PeerStateActive) {
-				log.Printf("[SFU] Peer %s fully connected and active", id)
+				slog.Info("peer fully connected", "component", "sfu", "peer_id", id)
 			}
 		}
 	})
@@ -82,7 +82,7 @@ func NewPeer(id string, sfu *SFU) (*Peer, error) {
 			id,
 		)
 		if err != nil {
-			log.Printf("[SFU] Failed to create local track for %s: %v", id, err)
+			slog.Error("failed to create local track", "component", "sfu", "peer_id", id, "error", err)
 			return
 		}
 
@@ -110,11 +110,11 @@ func (p *Peer) forwardTrack(remote *webrtc.TrackRemote, local *webrtc.TrackLocal
 	for {
 		n, _, err := remote.Read(buf)
 		if err != nil {
-			log.Printf("[SFU] Peer %s %s track read ended: %v", p.ID, kind, err)
+			slog.Debug("track read ended", "component", "sfu", "peer_id", p.ID, "kind", kind, "error", err)
 			return
 		}
 		if _, err := local.Write(buf[:n]); err != nil {
-			log.Printf("[SFU] Peer %s %s track write error: %v", p.ID, kind, err)
+			slog.Debug("track write error", "component", "sfu", "peer_id", p.ID, "kind", kind, "error", err)
 			return
 		}
 	}
@@ -202,7 +202,7 @@ func (p *Peer) EnsureVideoTransceiver() error {
 	if err != nil {
 		return fmt.Errorf("failed to add video transceiver: %w", err)
 	}
-	log.Printf("[SFU] Added video transceiver to peer %s for screen share", p.ID)
+	slog.Debug("added video transceiver for screen share", "component", "sfu", "peer_id", p.ID)
 	return nil
 }
 
@@ -237,7 +237,7 @@ func (p *Peer) AddTrack(sourceUserID string, trackKind string, track *webrtc.Tra
 	p.wg.Add(1)
 	go p.drainRTCP(sender)
 
-	log.Printf("[SFU] Added %s track from %s to peer %s", trackKind, sourceUserID, p.ID)
+	slog.Debug("added track to peer", "component", "sfu", "kind", trackKind, "source_id", sourceUserID, "peer_id", p.ID)
 	return nil
 }
 
@@ -260,7 +260,7 @@ func (p *Peer) RemoveTrack(sourceUserID string, trackKind string) error {
 	}
 
 	delete(p.outputTracks, key)
-	log.Printf("[SFU] Removed %s track from %s from peer %s", trackKind, sourceUserID, p.ID)
+	slog.Debug("removed track from peer", "component", "sfu", "kind", trackKind, "source_id", sourceUserID, "peer_id", p.ID)
 	return nil
 }
 
@@ -284,11 +284,11 @@ func (p *Peer) RemoveAllTracksFrom(sourceUserID string) error {
 	for _, key := range keysToRemove {
 		sender := p.outputTracks[key]
 		if err := p.conn.RemoveTrack(sender); err != nil {
-			log.Printf("[SFU] Error removing track %s: %v", key, err)
+			slog.Error("error removing track", "component", "sfu", "track_key", key, "error", err)
 			continue
 		}
 		delete(p.outputTracks, key)
-		log.Printf("[SFU] Removed track %s from peer %s", key, p.ID)
+		slog.Debug("removed track from peer", "component", "sfu", "track_key", key, "peer_id", p.ID)
 	}
 
 	return nil
@@ -344,7 +344,7 @@ func (p *Peer) Close() error {
 		return nil
 	}
 
-	log.Printf("[SFU] Closing peer %s", p.ID)
+	slog.Debug("closing peer", "component", "sfu", "peer_id", p.ID)
 
 	// Close the peer connection - this will unblock any blocking reads
 	err := p.conn.Close()
@@ -358,7 +358,7 @@ func (p *Peer) Close() error {
 	select {
 	case <-done:
 	case <-time.After(peerCloseTimeout):
-		log.Printf("[SFU] Warning: peer %s goroutines did not finish within timeout", p.ID)
+		slog.Warn("peer goroutines did not finish within timeout", "component", "sfu", "peer_id", p.ID)
 	}
 
 	p.transitionTo(PeerStateClosed)

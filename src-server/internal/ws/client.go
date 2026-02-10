@@ -2,7 +2,7 @@ package ws
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -144,14 +144,14 @@ func (c *Client) ReadPump() {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket error: %v", err)
+				slog.Error("websocket error", "component", "ws", "error", err)
 			}
 			break
 		}
 
 		var msg WSMessage
 		if err := json.Unmarshal(message, &msg); err != nil {
-			log.Printf("Error parsing message: %v", err)
+			slog.Warn("error parsing message", "component", "ws", "error", err)
 			continue
 		}
 
@@ -180,7 +180,7 @@ func (c *Client) WritePump() {
 			}
 
 			if err := c.conn.WriteJSON(message); err != nil {
-				log.Printf("Error writing message: %v", err)
+				slog.Error("error writing message", "component", "ws", "error", err)
 				return
 			}
 
@@ -218,7 +218,7 @@ func (c *Client) handleMessage(msg *WSMessage) {
 	case OpDispatch:
 		c.handleDispatch(msg)
 	default:
-		log.Printf("Unknown op code: %d", msg.Op)
+		slog.Warn("unknown op code", "component", "ws", "op", msg.Op)
 	}
 }
 
@@ -254,7 +254,7 @@ func (c *Client) handleDispatch(msg *WSMessage) {
 	case CmdScreenShareUnsubscribe:
 		c.handleScreenShareUnsubscribe()
 	default:
-		log.Printf("Unknown dispatch type: %s", msg.Type)
+		slog.Warn("unknown dispatch type", "component", "ws", "type", msg.Type)
 	}
 }
 
@@ -268,7 +268,7 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 	// Extract and validate token from IDENTIFY payload
 	token, _ := data["token"].(string)
 	if token == "" {
-		log.Printf("IDENTIFY missing token")
+		slog.Warn("IDENTIFY missing token", "component", "ws")
 		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "Missing token"}}
 		c.Close()
 		return
@@ -276,7 +276,7 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 
 	claims, err := c.hub.jwtService.ValidateAccessToken(token)
 	if err != nil {
-		log.Printf("IDENTIFY invalid token: %v", err)
+		slog.Warn("IDENTIFY invalid token", "component", "ws", "error", err)
 		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "Invalid token"}}
 		c.Close()
 		return
@@ -284,7 +284,7 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 
 	user, err := c.hub.userRepo.FindByID(claims.UserID)
 	if err != nil {
-		log.Printf("IDENTIFY user not found: %v", err)
+		slog.Warn("IDENTIFY user not found", "component", "ws", "error", err)
 		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "User not found"}}
 		c.Close()
 		return
@@ -315,12 +315,12 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		case <-done:
 			// Registration successful
 		case <-time.After(registerTimeout):
-			log.Printf("Registration timeout for client %s", c.user.ID)
+			slog.Error("registration timeout", "component", "ws", "user_id", c.user.ID)
 			c.Close()
 			return
 		}
 	case <-time.After(registerTimeout):
-		log.Printf("Registration send timeout for client %s", c.user.ID)
+		slog.Error("registration send timeout", "component", "ws", "user_id", c.user.ID)
 		c.Close()
 		return
 	}
@@ -334,7 +334,7 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		},
 	}
 
-	log.Printf("Client identified: %s (session: %s)", c.user.ID, c.sessionID)
+	slog.Info("client identified", "component", "ws", "user_id", c.user.ID, "session_id", c.sessionID)
 }
 
 func (c *Client) handleMessageSend(msg *WSMessage) {
@@ -394,7 +394,7 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 
 	message, err := c.hub.MessageRepo().Create(c.user.ID, content)
 	if err != nil {
-		log.Printf("Error creating message: %v", err)
+		slog.Error("error creating message", "component", "ws", "error", err)
 		return
 	}
 
@@ -586,7 +586,7 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 	if sfuInst != nil {
 		_, err := sfuInst.AddPeer(c.user.ID)
 		if err != nil {
-			log.Printf("Error creating SFU peer for %s: %v", c.user.ID, err)
+			slog.Error("error creating SFU peer", "component", "ws", "user_id", c.user.ID, "error", err)
 			c.send <- &WSMessage{
 				Op:   OpDispatch,
 				Type: EventError,
@@ -627,7 +627,7 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 	// Server initiates offers to ensure it's always the ICE controlling agent
 	if sfuInst != nil {
 		if err := sfuInst.SendInitialOffer(c.user.ID); err != nil {
-			log.Printf("Error sending initial offer to %s: %v", c.user.ID, err)
+			slog.Error("error sending initial offer", "component", "ws", "user_id", c.user.ID, "error", err)
 		}
 	}
 
@@ -638,7 +638,7 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 		Deafened: deafened,
 	})
 
-	log.Printf("User %s joined voice (muted: %v, deafened: %v)", c.user.ID, muted, deafened)
+	slog.Info("user joined voice", "component", "ws", "user_id", c.user.ID, "muted", muted, "deafened", deafened)
 }
 
 func (c *Client) handleVoiceLeave() {
@@ -671,7 +671,7 @@ func (c *Client) handleVoiceLeave() {
 		Deafened: false,
 	})
 
-	log.Printf("User %s left voice", c.user.ID)
+	slog.Info("user left voice", "component", "ws", "user_id", c.user.ID)
 }
 
 func (c *Client) handleRtcOffer(msg *WSMessage) {
@@ -681,19 +681,19 @@ func (c *Client) handleRtcOffer(msg *WSMessage) {
 
 	data, ok := msg.Data.(map[string]interface{})
 	if !ok {
-		log.Printf("Invalid RTC_OFFER payload from %s", c.user.ID)
+		slog.Warn("invalid RTC_OFFER payload", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
 	sdp, ok := data["sdp"].(string)
 	if !ok || sdp == "" {
-		log.Printf("Missing SDP in RTC_OFFER from %s", c.user.ID)
+		slog.Warn("missing SDP in RTC_OFFER", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
 	answerSDP, err := c.hub.HandleRtcOffer(c.user.ID, sdp)
 	if err != nil {
-		log.Printf("Error handling RTC offer from %s: %v", c.user.ID, err)
+		slog.Error("error handling RTC offer", "component", "ws", "user_id", c.user.ID, "error", err)
 		return
 	}
 
@@ -706,7 +706,7 @@ func (c *Client) handleRtcOffer(msg *WSMessage) {
 		SDP: answerSDP,
 	})
 
-	log.Printf("Processed RTC offer from %s", c.user.ID)
+	slog.Debug("processed RTC offer", "component", "ws", "user_id", c.user.ID)
 }
 
 func (c *Client) handleRtcAnswer(msg *WSMessage) {
@@ -716,22 +716,22 @@ func (c *Client) handleRtcAnswer(msg *WSMessage) {
 
 	data, ok := msg.Data.(map[string]interface{})
 	if !ok {
-		log.Printf("Invalid RTC_ANSWER payload from %s", c.user.ID)
+		slog.Warn("invalid RTC_ANSWER payload", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
 	sdp, ok := data["sdp"].(string)
 	if !ok || sdp == "" {
-		log.Printf("Missing SDP in RTC_ANSWER from %s", c.user.ID)
+		slog.Warn("missing SDP in RTC_ANSWER", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
 	if err := c.hub.HandleRtcAnswer(c.user.ID, sdp); err != nil {
-		log.Printf("Error handling RTC answer from %s: %v", c.user.ID, err)
+		slog.Error("error handling RTC answer", "component", "ws", "user_id", c.user.ID, "error", err)
 		return
 	}
 
-	log.Printf("Processed RTC answer from %s", c.user.ID)
+	slog.Debug("processed RTC answer", "component", "ws", "user_id", c.user.ID)
 }
 
 func (c *Client) handleRtcIceCandidate(msg *WSMessage) {
@@ -741,13 +741,13 @@ func (c *Client) handleRtcIceCandidate(msg *WSMessage) {
 
 	data, ok := msg.Data.(map[string]interface{})
 	if !ok {
-		log.Printf("Invalid RTC_ICE_CANDIDATE payload from %s", c.user.ID)
+		slog.Warn("invalid RTC_ICE_CANDIDATE payload", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
 	candidate, ok := data["candidate"].(string)
 	if !ok {
-		log.Printf("Missing candidate in RTC_ICE_CANDIDATE from %s", c.user.ID)
+		slog.Warn("missing candidate in RTC_ICE_CANDIDATE", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
@@ -762,7 +762,7 @@ func (c *Client) handleRtcIceCandidate(msg *WSMessage) {
 	}
 
 	if err := c.hub.HandleRtcIceCandidate(c.user.ID, candidate, sdpMid, sdpMLineIndex); err != nil {
-		log.Printf("Error handling ICE candidate from %s: %v", c.user.ID, err)
+		slog.Error("error handling ICE candidate", "component", "ws", "user_id", c.user.ID, "error", err)
 		return
 	}
 }
@@ -894,7 +894,7 @@ func (c *Client) handleScreenShareStart() {
 	if sfuInst != nil {
 		sfuInst.TriggerRenegotiation(c.user.ID)
 	}
-	log.Printf("User %s requested screen share, triggered renegotiation", c.user.ID)
+	slog.Info("user requested screen share", "component", "ws", "user_id", c.user.ID)
 }
 
 func (c *Client) handleScreenShareStop() {
@@ -908,7 +908,7 @@ func (c *Client) handleScreenShareStop() {
 	}
 
 	sm.StopShare(c.user.ID)
-	log.Printf("User %s stopped screen share", c.user.ID)
+	slog.Info("user stopped screen share", "component", "ws", "user_id", c.user.ID)
 }
 
 func (c *Client) handleScreenShareSubscribe(msg *WSMessage) {
@@ -937,7 +937,7 @@ func (c *Client) handleScreenShareSubscribe(msg *WSMessage) {
 	}
 
 	if err := sm.Subscribe(c.user.ID, streamerID); err != nil {
-		log.Printf("Error subscribing to screen share: %v", err)
+		slog.Error("error subscribing to screen share", "component", "ws", "error", err)
 	}
 }
 

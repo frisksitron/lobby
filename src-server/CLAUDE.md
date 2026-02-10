@@ -66,14 +66,35 @@ SQLite3 with WAL mode. Tables: `users`, `magic_codes`, `refresh_tokens`, `messag
 
 ## Configuration
 
-All config via YAML files (`config.yaml` / `config.dev.yaml`). No environment variables. Key sections: `server`, `database`, `auth`, `email`, `sfu`. JWT secret must be ≥32 chars. Dev config uses mailpit on localhost:1025 for SMTP.
+Config via YAML files (`config.yaml` / `config.dev.yaml`) and/or environment variables. YAML file is optional — if not found, the server starts with env vars + defaults only. Env vars override YAML values.
+
+Key sections: `server`, `database`, `auth`, `email`, `sfu`. Dev config uses mailpit on localhost:1025 for SMTP.
+
+Required environment variables: `LOBBY_JWT_SECRET` (≥32 chars), `LOBBY_SMTP_HOST`, `LOBBY_SMTP_PORT`, `LOBBY_SMTP_FROM` (SMTP is required — passwordless magic code login is the only auth method).
+
+Optional environment variables: `LOBBY_SERVER_NAME`, `LOBBY_SERVER_BASE_URL`, `LOBBY_DATABASE_PATH`, `LOBBY_ACCESS_TOKEN_TTL`, `LOBBY_REFRESH_TOKEN_TTL`, `LOBBY_MAGIC_CODE_TTL`, `LOBBY_SMTP_USERNAME`, `LOBBY_SMTP_PASSWORD`, `LOBBY_SFU_PUBLIC_IP`, `LOBBY_SFU_MIN_PORT`, `LOBBY_SFU_MAX_PORT`, `LOBBY_TURN_ADDR` (host:port), `LOBBY_TURN_SECRET`, `LOBBY_TURN_TTL`.
+
+Duration env vars use Go `time.ParseDuration` format (e.g., `15m`, `24h`, `720h`).
+
+## Logging
+
+Structured JSON logging via `log/slog` to stdout. All log calls use a `"component"` key for filtering (e.g., `sfu`, `hub`, `ws`, `cleanup`, `screenshare`, `email`).
+
+## Health Check
+
+`GET /health` — pings SQLite, returns `{"status":"ok","checks":{"database":"ok"}}` (200) or `{"status":"degraded",...}` (503).
 
 ## Deployment
 
-Target: RHEL/Fedora Linux. Scripts in `deploy/`:
-- `build.sh` — cross-compile binary
-- `setup.sh` — provision server (systemd service, coturn, firewall)
-- `deploy.sh` — upload binary via SSH, restart service, health check
+```bash
+# Dev (with mailpit)
+docker compose up --build
+
+# Production build
+docker build -t lobby-server .
+```
+
+The Dockerfile uses multi-stage Alpine build with CGO for SQLite. Data stored in `/data` volume.
 
 Required ports: 8080/TCP (API), 3478/TCP+UDP (TURN), 50000-50100/UDP (RTP)
 

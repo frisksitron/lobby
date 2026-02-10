@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -25,7 +25,7 @@ func NewUserHandler(users *db.UserRepository, hub *ws.Hub) *UserHandler {
 func (h *UserHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 	users, err := h.users.FindAll()
 	if err != nil {
-		log.Printf("Error finding users: %v", err)
+		slog.Error("error finding users", "error", err)
 		internalError(w)
 		return
 	}
@@ -47,7 +47,7 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("Error finding user: %v", err)
+		slog.Error("error finding user", "error", err)
 		internalError(w)
 		return
 	}
@@ -85,7 +85,7 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 
 		available, err := h.users.IsUsernameAvailable(username)
 		if err != nil {
-			log.Printf("Error checking username availability: %v", err)
+			slog.Error("error checking username availability", "error", err)
 			internalError(w)
 			return
 		}
@@ -103,7 +103,7 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 				conflict(w, "Username already taken")
 				return
 			}
-			log.Printf("Error updating username: %v", err)
+			slog.Error("error updating username", "error", err)
 			internalError(w)
 			return
 		}
@@ -117,7 +117,7 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("Error finding user: %v", err)
+		slog.Error("error finding user", "error", err)
 		internalError(w)
 		return
 	}

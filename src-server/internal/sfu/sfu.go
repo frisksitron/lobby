@@ -2,7 +2,7 @@ package sfu
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -124,7 +124,7 @@ func (s *SFU) AddPeer(userID string) (*Peer, error) {
 	}
 
 	s.peers[userID] = peer
-	log.Printf("[SFU] Added peer %s (total: %d)", userID, len(s.peers))
+	slog.Info("added peer", "component", "sfu", "user_id", userID, "total", len(s.peers))
 	return peer, nil
 }
 
@@ -157,12 +157,12 @@ func (s *SFU) RemovePeer(userID string) {
 			continue
 		}
 		if err := otherPeer.RemoveAllTracksFrom(userID); err != nil {
-			log.Printf("[SFU] Error removing tracks from peer %s: %v", otherUserID, err)
+			slog.Error("error removing tracks from peer", "component", "sfu", "peer_id", otherUserID, "error", err)
 		}
 		s.triggerRenegotiation(otherUserID, otherPeer)
 	}
 
-	log.Printf("[SFU] Removed peer %s", userID)
+	slog.Info("removed peer", "component", "sfu", "user_id", userID)
 }
 
 func (s *SFU) GetPeer(userID string) *Peer {
@@ -232,7 +232,7 @@ func (s *SFU) SendInitialOffer(userID string) error {
 		return fmt.Errorf("failed to set local description: %w", err)
 	}
 
-	log.Printf("[SFU] Sending initial offer to %s", userID)
+	slog.Debug("sending initial offer", "component", "sfu", "user_id", userID)
 	cb(userID, "RTC_OFFER", RtcOfferPayload{SDP: offer.SDP})
 	return nil
 }
@@ -255,10 +255,10 @@ func (s *SFU) HandleOffer(userID string, sdp string) (string, error) {
 	if signalingState != webrtc.SignalingStateStable {
 		// Accept offer if user has pending screen share (they're trying to send the video track)
 		if s.HasPendingScreenShare(userID) {
-			log.Printf("[SFU] Accepting offer from %s despite collision - pending screen share", userID)
+			slog.Debug("accepting offer despite collision - pending screen share", "component", "sfu", "user_id", userID)
 			// Rollback our pending offer to accept theirs
 			if err := peer.Rollback(); err != nil {
-				log.Printf("[SFU] Rollback failed for %s: %v", userID, err)
+				slog.Error("rollback failed", "component", "sfu", "user_id", userID, "error", err)
 				return "", nil
 			}
 			// Server abandoned its offer, clear the in-flight flag
@@ -266,7 +266,7 @@ func (s *SFU) HandleOffer(userID string, sdp string) (string, error) {
 			delete(s.negotiating, userID)
 			s.mu.Unlock()
 		} else {
-			log.Printf("[SFU] Ignoring offer from %s - offer collision (state: %s, server is impolite peer)", userID, signalingState.String())
+			slog.Debug("ignoring offer - collision", "component", "sfu", "user_id", userID, "state", signalingState.String())
 			return "", nil
 		}
 	}
@@ -332,7 +332,7 @@ func (s *SFU) HandleAnswer(userID string, sdp string) error {
 	s.mu.Unlock()
 
 	if hasPending {
-		log.Printf("[SFU] Processing pending renegotiation for %s", userID)
+		slog.Debug("processing pending renegotiation", "component", "sfu", "user_id", userID)
 		s.triggerRenegotiation(userID, peer)
 	}
 
@@ -396,7 +396,7 @@ func (s *SFU) OnPeerTrackReady(userID string, trackKind string, track *webrtc.Tr
 		if sm != nil {
 			sm.onVideoTrackReady(userID, track)
 		} else {
-			log.Printf("[SFU] Video track ready from %s but no screen share manager", userID)
+			slog.Warn("video track ready but no screen share manager", "component", "sfu", "user_id", userID)
 		}
 		return
 	}
@@ -417,7 +417,7 @@ func (s *SFU) OnPeerTrackReady(userID string, trackKind string, track *webrtc.Tr
 			continue
 		}
 		if err := otherPeer.AddTrack(userID, trackKind, track); err != nil {
-			log.Printf("[SFU] Error adding track to peer %s: %v", otherUserID, err)
+			slog.Error("error adding track to peer", "component", "sfu", "peer_id", otherUserID, "error", err)
 		}
 		s.triggerRenegotiation(otherUserID, otherPeer)
 	}
@@ -430,7 +430,7 @@ func (s *SFU) OnPeerTrackReady(userID string, trackKind string, track *webrtc.Tr
 				continue
 			}
 			if err := peer.AddTrack(sourceUserID, "audio", sourceTrack); err != nil {
-				log.Printf("[SFU] Error adding existing track from %s to new peer %s: %v", sourceUserID, userID, err)
+				slog.Error("error adding existing track to new peer", "component", "sfu", "source_id", sourceUserID, "peer_id", userID, "error", err)
 			}
 			addedTracks++
 		}
@@ -452,7 +452,7 @@ func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 		// Mark for later - will be processed when HandleAnswer brings us to stable state
 		s.pendingRenegotiations[userID] = true
 		s.mu.Unlock()
-		log.Printf("[SFU] Queued renegotiation for %s - not in stable state or negotiation in flight", userID)
+		slog.Debug("queued renegotiation - not stable or negotiation in flight", "component", "sfu", "user_id", userID)
 		return
 	}
 
@@ -464,7 +464,7 @@ func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 
 	offer, err := peer.CreateOffer()
 	if err != nil {
-		log.Printf("[SFU] Error creating offer for %s: %v", userID, err)
+		slog.Error("error creating offer", "component", "sfu", "user_id", userID, "error", err)
 		s.mu.Lock()
 		delete(s.negotiating, userID)
 		s.mu.Unlock()
@@ -472,14 +472,14 @@ func (s *SFU) triggerRenegotiation(userID string, peer *Peer) {
 	}
 
 	if err := peer.SetLocalDescription(offer); err != nil {
-		log.Printf("[SFU] Error setting local description for %s: %v", userID, err)
+		slog.Error("error setting local description", "component", "sfu", "user_id", userID, "error", err)
 		s.mu.Lock()
 		delete(s.negotiating, userID)
 		s.mu.Unlock()
 		return
 	}
 
-	log.Printf("[SFU] Sending renegotiation offer to %s", userID)
+	slog.Debug("sending renegotiation offer", "component", "sfu", "user_id", userID)
 	cb(userID, "RTC_OFFER", RtcOfferPayload{SDP: offer.SDP})
 }
 
@@ -491,5 +491,5 @@ func (s *SFU) Close() {
 		peer.Close()
 		delete(s.peers, userID)
 	}
-	log.Printf("[SFU] Closed all peer connections")
+	slog.Info("closed all peer connections", "component", "sfu")
 }

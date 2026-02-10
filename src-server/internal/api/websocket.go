@@ -1,7 +1,7 @@
 package api
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -31,7 +31,7 @@ func NewWebSocketHandler(hub *ws.Hub) *WebSocketHandler {
 func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
+		slog.Error("websocket upgrade failed", "error", err)
 		return
 	}
 
@@ -46,7 +46,7 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		time.Sleep(10 * time.Second)
 		if !client.IsIdentified() {
-			log.Printf("Client did not identify within timeout, closing")
+			slog.Warn("client did not identify within timeout, closing")
 			client.Close()
 		}
 	}()

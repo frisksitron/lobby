@@ -1,7 +1,7 @@
 package sfu
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -73,18 +73,18 @@ func (sm *ScreenShareManager) StartShare(userID string) {
 	// If peer already has a video track, reuse it immediately
 	// (Client used replaceTrack() so OnTrack won't fire again)
 	if existingTrack != nil {
-		log.Printf("[ScreenShare] User %s reusing existing video track (replaceTrack pattern)", userID)
+		slog.Debug("reusing existing video track", "component", "screenshare", "user_id", userID)
 		sm.onVideoTrackReady(userID, existingTrack)
 		return
 	}
 
 	if peer != nil {
 		if err := peer.EnsureVideoTransceiver(); err != nil {
-			log.Printf("[ScreenShare] Error ensuring video transceiver for %s: %v", userID, err)
+			slog.Error("error ensuring video transceiver", "component", "screenshare", "user_id", userID, "error", err)
 		}
 	}
 
-	log.Printf("[ScreenShare] User %s registered for streaming, waiting for video track", userID)
+	slog.Debug("registered for streaming, waiting for video track", "component", "screenshare", "user_id", userID)
 	// NOTE: We do NOT broadcast here - wait for onVideoTrackReady
 }
 
@@ -122,7 +122,7 @@ func (sm *ScreenShareManager) StopShare(userID string) {
 		sm.removeVideoTrackFromViewer(userID, viewerID)
 	}
 
-	log.Printf("[ScreenShare] User %s stopped screen share", userID)
+	slog.Info("user stopped screen share", "component", "screenshare", "user_id", userID)
 
 	// Only broadcast if we actually had a track (were actively streaming)
 	if cb != nil && hadTrack {
@@ -135,14 +135,14 @@ func (sm *ScreenShareManager) Subscribe(viewerID, streamerID string) error {
 	state, exists := sm.activeStreams[streamerID]
 	if !exists {
 		sm.mu.Unlock()
-		log.Printf("[ScreenShare] Subscribe failed: %s is not streaming", streamerID)
+		slog.Debug("subscribe failed: not streaming", "component", "screenshare", "streamer_id", streamerID)
 		return nil
 	}
 
 	// Check if the track is actually ready
 	if state == nil || !state.HasTrack {
 		sm.mu.Unlock()
-		log.Printf("[ScreenShare] Subscribe failed: %s's video track not yet ready", streamerID)
+		slog.Debug("subscribe failed: video track not ready", "component", "screenshare", "streamer_id", streamerID)
 		return nil
 	}
 
@@ -157,7 +157,7 @@ func (sm *ScreenShareManager) Subscribe(viewerID, streamerID string) error {
 		state, exists = sm.activeStreams[streamerID]
 		if !exists || state == nil || !state.HasTrack {
 			sm.mu.Unlock()
-			log.Printf("[ScreenShare] Subscribe aborted: %s's stream ended during unsubscribe", streamerID)
+			slog.Debug("subscribe aborted: stream ended during unsubscribe", "component", "screenshare", "streamer_id", streamerID)
 			return nil
 		}
 	}
@@ -175,7 +175,7 @@ func (sm *ScreenShareManager) Subscribe(viewerID, streamerID string) error {
 		sm.addVideoTrackToViewer(streamerID, viewerID, track)
 	}
 
-	log.Printf("[ScreenShare] User %s subscribed to %s's stream", viewerID, streamerID)
+	slog.Debug("user subscribed to stream", "component", "screenshare", "viewer_id", viewerID, "streamer_id", streamerID)
 	return nil
 }
 
@@ -195,7 +195,7 @@ func (sm *ScreenShareManager) Unsubscribe(viewerID string) {
 	sm.mu.Unlock()
 
 	sm.removeVideoTrackFromViewer(streamerID, viewerID)
-	log.Printf("[ScreenShare] User %s unsubscribed from %s's stream", viewerID, streamerID)
+	slog.Debug("user unsubscribed from stream", "component", "screenshare", "viewer_id", viewerID, "streamer_id", streamerID)
 }
 
 func (sm *ScreenShareManager) OnUserDisconnect(userID string) {
@@ -239,7 +239,7 @@ func (sm *ScreenShareManager) onVideoTrackReady(userID string, track *webrtc.Tra
 
 	// Auto-register if video track arrives before SCREENSHARE_START (race condition fix)
 	if !isRegistered {
-		log.Printf("[ScreenShare] Auto-registering %s (video track arrived before SCREENSHARE_START)", userID)
+		slog.Debug("auto-registering: video track arrived before SCREENSHARE_START", "component", "screenshare", "user_id", userID)
 		state = &ScreenShareState{
 			UserID:   userID,
 			Track:    nil,
@@ -260,7 +260,7 @@ func (sm *ScreenShareManager) onVideoTrackReady(userID string, track *webrtc.Tra
 	cb := sm.onUpdateCallback
 	sm.mu.Unlock()
 
-	log.Printf("[ScreenShare] Video track ready from %s, now actively streaming", userID)
+	slog.Info("video track ready, now streaming", "component", "screenshare", "user_id", userID)
 
 	// NOW broadcast that the user is streaming (track is ready)
 	if cb != nil {
@@ -269,7 +269,7 @@ func (sm *ScreenShareManager) onVideoTrackReady(userID string, track *webrtc.Tra
 
 	// Distribute track to any existing subscribers
 	if len(viewers) > 0 {
-		log.Printf("[ScreenShare] Distributing video track to %d waiting viewers", len(viewers))
+		slog.Debug("distributing video track to waiting viewers", "component", "screenshare", "viewer_count", len(viewers))
 		for _, viewerID := range viewers {
 			sm.addVideoTrackToViewer(userID, viewerID, track)
 		}
@@ -283,7 +283,7 @@ func (sm *ScreenShareManager) addVideoTrackToViewer(streamerID, viewerID string,
 	}
 
 	if err := peer.AddTrack(streamerID, "video", track); err != nil {
-		log.Printf("[ScreenShare] Error adding video track to %s: %v", viewerID, err)
+		slog.Error("error adding video track to viewer", "component", "screenshare", "viewer_id", viewerID, "error", err)
 		return
 	}
 
@@ -313,9 +313,9 @@ func (sm *ScreenShareManager) OnRenegotiationComplete(viewerID string) {
 	streamerPeer := sm.sfu.GetPeer(streamerID)
 	if streamerPeer != nil && !streamerPeer.IsClosed() {
 		if err := streamerPeer.RequestKeyframe(); err != nil {
-			log.Printf("[ScreenShare] Error requesting keyframe from %s: %v", streamerID, err)
+			slog.Error("error requesting keyframe", "component", "screenshare", "streamer_id", streamerID, "error", err)
 		} else {
-			log.Printf("[ScreenShare] Requested keyframe from %s for viewer %s", streamerID, viewerID)
+			slog.Debug("requested keyframe", "component", "screenshare", "streamer_id", streamerID, "viewer_id", viewerID)
 		}
 	}
 }
@@ -327,7 +327,7 @@ func (sm *ScreenShareManager) removeVideoTrackFromViewer(streamerID, viewerID st
 	}
 
 	if err := peer.RemoveTrack(streamerID, "video"); err != nil {
-		log.Printf("[ScreenShare] Error removing video track from %s: %v", viewerID, err)
+		slog.Error("error removing video track from viewer", "component", "screenshare", "viewer_id", viewerID, "error", err)
 		return
 	}
 

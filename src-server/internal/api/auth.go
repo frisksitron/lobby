@@ -4,7 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -74,7 +74,7 @@ func (h *AuthHandler) RequestMagicCode(w http.ResponseWriter, r *http.Request) {
 
 	code, err := h.magicService.GenerateCode()
 	if err != nil {
-		log.Printf("Error generating magic code: %v", err)
+		slog.Error("error generating magic code", "error", err)
 		internalError(w)
 		return
 	}
@@ -83,13 +83,13 @@ func (h *AuthHandler) RequestMagicCode(w http.ResponseWriter, r *http.Request) {
 	expiresAt := h.magicService.ExpiresAt()
 	_, err = h.magicCodes.Create(req.Email, code, expiresAt)
 	if err != nil {
-		log.Printf("Error storing magic code: %v", err)
+		slog.Error("error storing magic code", "error", err)
 		internalError(w)
 		return
 	}
 
 	if err := h.emailService.SendMagicCode(req.Email, code, h.magicCodeTTL); err != nil {
-		log.Printf("Error sending magic code email: %v", err)
+		slog.Error("error sending magic code email", "error", err)
 		// Intentionally not returning error to client - prevents email enumeration attacks.
 	}
 
@@ -143,14 +143,14 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("Error finding magic code: %v", err)
+		slog.Error("error finding magic code", "error", err)
 		internalError(w)
 		return
 	}
 
 	newAttempts, err := h.magicCodes.IncrementAttempts(magicCode.ID, auth.MaxAttempts)
 	if err != nil {
-		log.Printf("Error incrementing attempts: %v", err)
+		slog.Error("error incrementing attempts", "error", err)
 		internalError(w)
 		return
 	}
@@ -171,7 +171,7 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 
 	wasMarked, err := h.magicCodes.MarkUsedIfUnused(magicCode.ID)
 	if err != nil {
-		log.Printf("Error marking code used: %v", err)
+		slog.Error("error marking code used", "error", err)
 		internalError(w)
 		return
 	}
@@ -186,13 +186,13 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		// Create new user
 		user, err = h.users.Create(magicCode.Email)
 		if err != nil {
-			log.Printf("Error creating user: %v", err)
+			slog.Error("error creating user", "error", err)
 			internalError(w)
 			return
 		}
 		isNewUser = true
 	} else if err != nil {
-		log.Printf("Error finding user: %v", err)
+		slog.Error("error finding user", "error", err)
 		internalError(w)
 		return
 	}
@@ -224,7 +224,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("Error finding refresh token: %v", err)
+		slog.Error("error finding refresh token", "error", err)
 		internalError(w)
 		return
 	}
@@ -245,14 +245,14 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("Error finding user: %v", err)
+		slog.Error("error finding user", "error", err)
 		internalError(w)
 		return
 	}
 
 	// Revoke old refresh token - fail if revocation fails to prevent token accumulation
 	if err := h.refreshTokens.Revoke(refreshToken.ID); err != nil {
-		log.Printf("Error revoking old refresh token: %v", err)
+		slog.Error("error revoking old refresh token", "error", err)
 		internalError(w)
 		return
 	}
@@ -270,7 +270,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.refreshTokens.RevokeAllForUser(userID); err != nil {
-		log.Printf("Error revoking refresh tokens: %v", err)
+		slog.Error("error revoking refresh tokens", "error", err)
 		internalError(w)
 		return
 	}
@@ -281,14 +281,14 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) issueTokens(w http.ResponseWriter, user *models.User, isNewUser bool) {
 	tokenPair, refreshHash, err := h.jwtService.GenerateTokenPair(user)
 	if err != nil {
-		log.Printf("Error generating token pair: %v", err)
+		slog.Error("error generating token pair", "error", err)
 		internalError(w)
 		return
 	}
 
 	_, err = h.refreshTokens.Create(user.ID, refreshHash, h.jwtService.RefreshTokenExpiry())
 	if err != nil {
-		log.Printf("Error storing refresh token: %v", err)
+		slog.Error("error storing refresh token", "error", err)
 		internalError(w)
 		return
 	}

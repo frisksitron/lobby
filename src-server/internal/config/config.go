@@ -1,8 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -61,14 +64,18 @@ type SMTPConfig struct {
 }
 
 func Load(path string) (*Config, error) {
+	var cfg Config
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading config file: %w", err)
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config file: %w", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("reading config file: %w", err)
+		}
+		// No config file — continue with env vars + defaults
+	} else {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("parsing config file: %w", err)
+		}
 	}
 
 	cfg.applyEnvOverrides()
@@ -82,16 +89,73 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+func envString(key string, dst *string) {
+	if v := os.Getenv(key); v != "" {
+		*dst = v
+	}
+}
+
+func envInt(key string, dst *int) {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			*dst = i
+		}
+	}
+}
+
+func envUint16(key string, dst *uint16) {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.ParseUint(v, 10, 16); err == nil {
+			*dst = uint16(i)
+		}
+	}
+}
+
+func envDuration(key string, dst *time.Duration) {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			*dst = d
+		}
+	}
+}
+
 func (c *Config) applyEnvOverrides() {
-	if v := os.Getenv("LOBBY_JWT_SECRET"); v != "" {
-		c.Auth.JWTSecret = v
+	// Server
+	envString("LOBBY_SERVER_NAME", &c.Server.Name)
+	envString("LOBBY_SERVER_BASE_URL", &c.Server.BaseURL)
+
+	// Database
+	envString("LOBBY_DATABASE_PATH", &c.Database.Path)
+
+	// Auth
+	envString("LOBBY_JWT_SECRET", &c.Auth.JWTSecret)
+	envDuration("LOBBY_ACCESS_TOKEN_TTL", &c.Auth.AccessTokenTTL)
+	envDuration("LOBBY_REFRESH_TOKEN_TTL", &c.Auth.RefreshTokenTTL)
+	envDuration("LOBBY_MAGIC_CODE_TTL", &c.Auth.MagicCodeTTL)
+
+	// Email / SMTP
+	envString("LOBBY_SMTP_HOST", &c.Email.SMTP.Host)
+	envInt("LOBBY_SMTP_PORT", &c.Email.SMTP.Port)
+	envString("LOBBY_SMTP_USERNAME", &c.Email.SMTP.Username)
+	envString("LOBBY_SMTP_PASSWORD", &c.Email.SMTP.Password)
+	envString("LOBBY_SMTP_FROM", &c.Email.SMTP.From)
+
+	// SFU
+	envString("LOBBY_SFU_PUBLIC_IP", &c.SFU.PublicIP)
+	envUint16("LOBBY_SFU_MIN_PORT", &c.SFU.MinPort)
+	envUint16("LOBBY_SFU_MAX_PORT", &c.SFU.MaxPort)
+
+	// TURN
+	if v := os.Getenv("LOBBY_TURN_ADDR"); v != "" {
+		if host, portStr, err := net.SplitHostPort(v); err == nil {
+			c.SFU.TURN.Host = host
+			if port, err := strconv.Atoi(portStr); err == nil {
+				c.SFU.TURN.Port = port
+			}
+		}
 	}
-	if v := os.Getenv("LOBBY_SMTP_PASSWORD"); v != "" {
-		c.Email.SMTP.Password = v
-	}
-	if v := os.Getenv("LOBBY_TURN_SECRET"); v != "" {
-		c.SFU.TURN.Secret = v
-	}
+	envString("LOBBY_TURN_SECRET", &c.SFU.TURN.Secret)
+	envDuration("LOBBY_TURN_TTL", &c.SFU.TURN.TTL)
 }
 
 func (c *Config) validate() error {

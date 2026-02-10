@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -23,6 +24,7 @@ type Server struct {
 
 func NewServer(
 	cfg *config.Config,
+	database *db.DB,
 	emailService *email.SMTPService,
 	userRepo *db.UserRepository,
 	magicCodeRepo *db.MagicCodeRepository,
@@ -59,15 +61,18 @@ func NewServer(
 	serverInfoHandler := NewServerInfoHandler(cfg.Server.Name)
 	wsHandler := NewWebSocketHandler(hub)
 	messageHandler := NewMessageHandler(messageRepo, userRepo)
+	healthHandler := NewHealthHandler(database)
 
 	authMiddleware := NewAuthMiddleware(jwtService)
 
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+	r.Use(slogRequestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 	r.Use(corsMiddleware)
 	r.Use(securityHeadersMiddleware)
+
+	r.Get("/health", healthHandler.Check)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(maxBodySizeMiddleware(1 << 20)) // 1 MB
@@ -146,6 +151,22 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
+	})
+}
+
+func slogRequestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		slog.Info("http request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", ww.Status(),
+			"bytes", ww.BytesWritten(),
+			"duration", time.Since(start).String(),
+			"remote", r.RemoteAddr,
+		)
 	})
 }
 

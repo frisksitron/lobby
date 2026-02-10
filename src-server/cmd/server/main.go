@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,22 +17,28 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Starting %s...", cfg.Server.Name)
+	slog.Info("starting server", "name", cfg.Server.Name)
 
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		slog.Error("failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer database.Close()
-	log.Printf("Database opened at %s", cfg.Database.Path)
+	slog.Info("database opened", "path", cfg.Database.Path)
 
 	userRepo := db.NewUserRepository(database)
 	magicCodeRepo := db.NewMagicCodeRepository(database)
@@ -50,11 +56,12 @@ func main() {
 		cfg.Email.SMTP.Password,
 		cfg.Email.SMTP.From,
 	)
-	log.Printf("Email configured: %s:%d", cfg.Email.SMTP.Host, cfg.Email.SMTP.Port)
+	slog.Info("email configured", "host", cfg.Email.SMTP.Host, "port", cfg.Email.SMTP.Port)
 
-	server, err := api.NewServer(cfg, emailService, userRepo, magicCodeRepo, refreshTokenRepo, messageRepo)
+	server, err := api.NewServer(cfg, database, emailService, userRepo, magicCodeRepo, refreshTokenRepo, messageRepo)
 	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		slog.Error("failed to create server", "error", err)
+		os.Exit(1)
 	}
 
 	addr := cfg.Addr()
@@ -64,10 +71,10 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Server listening on %s", addr)
-		log.Printf("Base URL: %s", cfg.Server.BaseURL)
+		slog.Info("server listening", "addr", addr, "base_url", cfg.Server.BaseURL)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			slog.Error("server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -75,7 +82,7 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("Shutting down...")
+	slog.Info("shutting down")
 
 	cleanupCancel()
 
@@ -84,8 +91,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
+		slog.Error("http server shutdown error", "error", err)
 	}
 
-	log.Println("Server stopped")
+	slog.Info("server stopped")
 }
