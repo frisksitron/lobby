@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"lobby/internal/auth"
 	"lobby/internal/config"
@@ -17,6 +18,8 @@ import (
 const (
 	// maxDroppedMessagesBeforeDisconnect is the threshold for disconnecting slow clients
 	maxDroppedMessagesBeforeDisconnect = 100
+	voiceJoinWatchdogInterval          = 2 * time.Second
+	voiceJoinWatchdogTimeout           = 12 * time.Second
 )
 
 // registerRequest is used for synchronous registration with a callback
@@ -31,38 +34,68 @@ type VoiceState struct {
 	Deafened bool
 }
 
+type VoiceLifecycleState string
+
+const (
+	VoiceLifecycleNotInVoice VoiceLifecycleState = "not_in_voice"
+	VoiceLifecycleJoining    VoiceLifecycleState = "joining"
+	VoiceLifecycleActive     VoiceLifecycleState = "active"
+	VoiceLifecycleLeaving    VoiceLifecycleState = "leaving"
+)
+
+type VoiceSession struct {
+	State    VoiceLifecycleState
+	Muted    bool
+	Deafened bool
+	JoinedAt time.Time
+}
+
+func isValidVoiceTransition(from, to VoiceLifecycleState) bool {
+	switch from {
+	case VoiceLifecycleNotInVoice:
+		return to == VoiceLifecycleJoining
+	case VoiceLifecycleJoining:
+		return to == VoiceLifecycleActive || to == VoiceLifecycleLeaving
+	case VoiceLifecycleActive:
+		return to == VoiceLifecycleLeaving
+	case VoiceLifecycleLeaving:
+		return to == VoiceLifecycleNotInVoice
+	}
+	return false
+}
+
 type Hub struct {
-	clients           map[*Client]bool
-	userClients       map[string]*Client
-	voiceParticipants map[string]*VoiceState
-	broadcast         chan *WSMessage
-	registerSync      chan registerRequest
-	unregister        chan *Client
-	shutdown          chan struct{}
-	jwtService        *auth.JWTService
-	userRepo          *db.UserRepository
-	messageRepo       *db.MessageRepository
-	sfu               *sfu.SFU
-	sfuCfg            *config.SFUConfig
-	screenShare       *sfu.ScreenShareManager
-	sequence          int64
-	mu                sync.RWMutex
+	clients       map[*Client]bool
+	userClients   map[string]*Client
+	voiceSessions map[string]*VoiceSession
+	broadcast     chan *WSMessage
+	registerSync  chan registerRequest
+	unregister    chan *Client
+	shutdown      chan struct{}
+	jwtService    *auth.JWTService
+	userRepo      *db.UserRepository
+	messageRepo   *db.MessageRepository
+	sfu           *sfu.SFU
+	sfuCfg        *config.SFUConfig
+	screenShare   *sfu.ScreenShareManager
+	sequence      int64
+	mu            sync.RWMutex
 }
 
 func NewHub(jwtService *auth.JWTService, userRepo *db.UserRepository, messageRepo *db.MessageRepository, sfuCfg *config.SFUConfig) (*Hub, error) {
 	h := &Hub{
-		clients:           make(map[*Client]bool),
-		userClients:       make(map[string]*Client),
-		voiceParticipants: make(map[string]*VoiceState),
-		broadcast:         make(chan *WSMessage, constants.WSBroadcastBufferSize),
-		registerSync:      make(chan registerRequest),
-		unregister:        make(chan *Client),
-		shutdown:          make(chan struct{}),
-		jwtService:        jwtService,
-		userRepo:          userRepo,
-		messageRepo:       messageRepo,
-		sfuCfg:            sfuCfg,
-		sequence:          0,
+		clients:       make(map[*Client]bool),
+		userClients:   make(map[string]*Client),
+		voiceSessions: make(map[string]*VoiceSession),
+		broadcast:     make(chan *WSMessage, constants.WSBroadcastBufferSize),
+		registerSync:  make(chan registerRequest),
+		unregister:    make(chan *Client),
+		shutdown:      make(chan struct{}),
+		jwtService:    jwtService,
+		userRepo:      userRepo,
+		messageRepo:   messageRepo,
+		sfuCfg:        sfuCfg,
+		sequence:      0,
 	}
 
 	// Initialize SFU
@@ -93,6 +126,9 @@ func NewHub(jwtService *auth.JWTService, userRepo *db.UserRepository, messageRep
 }
 
 func (h *Hub) Run() {
+	watchdogTicker := time.NewTicker(voiceJoinWatchdogInterval)
+	defer watchdogTicker.Stop()
+
 	for {
 		select {
 		case <-h.shutdown:
@@ -121,8 +157,7 @@ func (h *Hub) Run() {
 					case old.send <- &WSMessage{Op: OpInvalidSession, Data: InvalidSessionPayload{Resumable: false}}:
 					default:
 					}
-					if _, inVoice := h.voiceParticipants[replacedUserID]; inVoice {
-						delete(h.voiceParticipants, replacedUserID)
+					if _, inVoice := h.removeVoiceSessionLocked(replacedUserID); inVoice {
 						wasInVoice = true
 					}
 					old.Close()
@@ -161,8 +196,7 @@ func (h *Hub) Run() {
 				// Only clean up voice if this is still the active client
 				// (not already replaced by registerSync)
 				if wasActiveClient {
-					if _, inVoice := h.voiceParticipants[userID]; inVoice {
-						delete(h.voiceParticipants, userID)
+					if _, inVoice := h.removeVoiceSessionLocked(userID); inVoice {
 						wasInVoice = true
 					}
 				}
@@ -195,6 +229,17 @@ func (h *Hub) Run() {
 				h.sendToClientLocked(client, message)
 			}
 			h.mu.RUnlock()
+
+		case <-watchdogTicker.C:
+			staleUsers := h.collectStaleJoiningUsers()
+			for _, userID := range staleUsers {
+				h.forceCleanupVoiceSession(userID)
+				h.SendDispatchToUser(userID, EventError, ErrorPayload{
+					Code:    ErrCodeVoiceNegotiationTimeout,
+					Message: "Voice negotiation timed out",
+				})
+				slog.Warn("voice join watchdog cleaned stale session", "component", "hub", "user_id", userID, "timeout", voiceJoinWatchdogTimeout)
+			}
 		}
 	}
 }
@@ -305,14 +350,14 @@ func (h *Hub) GetOnlineMembers() []MemberState {
 			continue
 		}
 
-		// Include voice state from voiceParticipants
+		// Include voice state from voiceSessions
 		inVoice := false
 		muted := false
 		deafened := false
-		if voiceState, ok := h.voiceParticipants[client.user.ID]; ok {
+		if session, ok := h.voiceSessions[client.user.ID]; ok {
 			inVoice = true
-			muted = voiceState.Muted
-			deafened = voiceState.Deafened
+			muted = session.Muted
+			deafened = session.Deafened
 		}
 
 		// Check streaming state
@@ -383,22 +428,94 @@ func (h *Hub) UserRepo() *db.UserRepository {
 	return h.userRepo
 }
 
-func (h *Hub) SetUserVoiceState(userID string, state *VoiceState) {
+func (h *Hub) BeginVoiceJoin(userID string, muted, deafened bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.voiceParticipants[userID] = state
+
+	from := VoiceLifecycleNotInVoice
+	if session, ok := h.voiceSessions[userID]; ok {
+		from = session.State
+	}
+	if !isValidVoiceTransition(from, VoiceLifecycleJoining) {
+		return fmt.Errorf("voice state transition %s -> %s is invalid", from, VoiceLifecycleJoining)
+	}
+
+	h.voiceSessions[userID] = &VoiceSession{
+		State:    VoiceLifecycleJoining,
+		Muted:    muted,
+		Deafened: deafened,
+		JoinedAt: time.Now(),
+	}
+	return nil
 }
 
-func (h *Hub) RemoveUserFromVoice(userID string) {
+func (h *Hub) ActivateVoiceSession(userID string) (*VoiceState, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.voiceParticipants, userID)
+
+	session, ok := h.voiceSessions[userID]
+	if !ok {
+		return nil, fmt.Errorf("voice state transition %s -> %s is invalid", VoiceLifecycleNotInVoice, VoiceLifecycleActive)
+	}
+	if session.State == VoiceLifecycleActive {
+		return &VoiceState{Muted: session.Muted, Deafened: session.Deafened}, nil
+	}
+	if !isValidVoiceTransition(session.State, VoiceLifecycleActive) {
+		return nil, fmt.Errorf("voice state transition %s -> %s is invalid", session.State, VoiceLifecycleActive)
+	}
+
+	session.State = VoiceLifecycleActive
+	return &VoiceState{Muted: session.Muted, Deafened: session.Deafened}, nil
+}
+
+func (h *Hub) RemoveUserFromVoice(userID string) (*VoiceSession, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	session, ok := h.voiceSessions[userID]
+	if !ok {
+		return nil, false
+	}
+	if !isValidVoiceTransition(session.State, VoiceLifecycleLeaving) {
+		return nil, false
+	}
+	session.State = VoiceLifecycleLeaving
+	if !isValidVoiceTransition(session.State, VoiceLifecycleNotInVoice) {
+		return nil, false
+	}
+
+	snapshot := *session
+	delete(h.voiceSessions, userID)
+	return &snapshot, true
+}
+
+func (h *Hub) DiscardVoiceSession(userID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.removeVoiceSessionLocked(userID)
+}
+
+func (h *Hub) GetVoiceLifecycleState(userID string) VoiceLifecycleState {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	session, ok := h.voiceSessions[userID]
+	if !ok {
+		return VoiceLifecycleNotInVoice
+	}
+	return session.State
 }
 
 func (h *Hub) GetUserVoiceState(userID string) *VoiceState {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return h.voiceParticipants[userID]
+
+	session, ok := h.voiceSessions[userID]
+	if !ok {
+		return nil
+	}
+
+	return &VoiceState{Muted: session.Muted, Deafened: session.Deafened}
 }
 
 // UpdateUserVoiceState atomically updates a user's voice state fields.
@@ -407,23 +524,19 @@ func (h *Hub) UpdateUserVoiceState(userID string, muted, deafened *bool) *VoiceS
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	state, exists := h.voiceParticipants[userID]
-	if !exists {
+	session, exists := h.voiceSessions[userID]
+	if !exists || session.State != VoiceLifecycleActive {
 		return nil
 	}
 
 	if muted != nil {
-		state.Muted = *muted
+		session.Muted = *muted
 	}
 	if deafened != nil {
-		state.Deafened = *deafened
+		session.Deafened = *deafened
 	}
 
-	// Return a copy to avoid race conditions with the map value
-	return &VoiceState{
-		Muted:    state.Muted,
-		Deafened: state.Deafened,
-	}
+	return &VoiceState{Muted: session.Muted, Deafened: session.Deafened}
 }
 
 func (h *Hub) GetVoiceParticipantIDs(excludeUserID string) []string {
@@ -431,8 +544,11 @@ func (h *Hub) GetVoiceParticipantIDs(excludeUserID string) []string {
 	defer h.mu.RUnlock()
 
 	var ids []string
-	for id := range h.voiceParticipants {
-		if id != excludeUserID {
+	for id, session := range h.voiceSessions {
+		if id == excludeUserID {
+			continue
+		}
+		if session.State == VoiceLifecycleJoining || session.State == VoiceLifecycleActive {
 			ids = append(ids, id)
 		}
 	}
@@ -502,8 +618,12 @@ func (h *Hub) handleSfuError(userID string, err error) {
 		slog.Warn("transient SFU error", "component", "hub", "user_id", userID, "error", err)
 	case sfu.ErrKindFatal:
 		slog.Error("fatal SFU error", "component", "hub", "user_id", userID, "error", err)
-		// Clean up the peer on fatal errors
-		h.sfu.RemovePeer(userID)
+		// Fatal SFU errors should force voice cleanup to avoid ghost state.
+		h.forceCleanupVoiceSession(userID)
+		h.SendDispatchToUser(userID, EventError, ErrorPayload{
+			Code:    ErrCodeVoiceNegotiationFailed,
+			Message: "Voice negotiation failed",
+		})
 	}
 }
 
@@ -569,6 +689,58 @@ func (h *Hub) cleanupVoiceForUser(userID string) {
 func (h *Hub) IsUserInVoice(userID string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	_, ok := h.voiceParticipants[userID]
+	_, ok := h.voiceSessions[userID]
 	return ok
+}
+
+func (h *Hub) removeVoiceSessionLocked(userID string) (*VoiceSession, bool) {
+	session, ok := h.voiceSessions[userID]
+	if !ok {
+		return nil, false
+	}
+	delete(h.voiceSessions, userID)
+	copy := *session
+	return &copy, true
+}
+
+func (h *Hub) collectStaleJoiningUsers() []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	now := time.Now()
+	staleUsers := make([]string, 0)
+	for userID, session := range h.voiceSessions {
+		if session.State != VoiceLifecycleJoining {
+			continue
+		}
+		if now.Sub(session.JoinedAt) >= voiceJoinWatchdogTimeout {
+			staleUsers = append(staleUsers, userID)
+		}
+	}
+
+	return staleUsers
+}
+
+func (h *Hub) forceCleanupVoiceSession(userID string) {
+	h.mu.Lock()
+	_, hadSession := h.removeVoiceSessionLocked(userID)
+	h.mu.Unlock()
+
+	if h.sfu != nil {
+		h.sfu.RemovePeer(userID)
+	}
+	if h.screenShare != nil {
+		h.screenShare.OnUserDisconnect(userID)
+	}
+
+	if !hadSession {
+		return
+	}
+
+	h.BroadcastDispatch(EventVoiceStateUpdate, VoiceStateUpdatePayload{
+		UserID:   userID,
+		InVoice:  false,
+		Muted:    false,
+		Deafened: false,
+	})
 }

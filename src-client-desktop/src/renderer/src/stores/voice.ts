@@ -20,12 +20,32 @@ import { updateUser, users } from "./users"
 
 const log = createLogger("Voice")
 
+type VoiceLifecycleState = "not_in_voice" | "joining" | "active" | "leaving"
+
+const VOICE_TRANSITIONS: Record<VoiceLifecycleState, VoiceLifecycleState[]> = {
+  not_in_voice: ["joining"],
+  joining: ["active", "leaving"],
+  active: ["leaving"],
+  leaving: ["not_in_voice"]
+}
+
+const STARTUP_FAILURE_CODES = new Set<WebRTCError["code"]>([
+  "media_permission_denied",
+  "no_device",
+  "device_not_found",
+  "device_in_use",
+  "offer_timeout"
+])
+
 const [localVoice, setLocalVoice] = createSignal<LocalVoiceState>({
   connecting: false,
   inVoice: false,
   muted: false,
   deafened: false
 })
+
+const [voiceLifecycle, setVoiceLifecycle] = createSignal<VoiceLifecycleState>("not_in_voice")
+let leaveInFlight = false
 
 // Confirmed state from server (for cooldown recovery)
 const [confirmedState, setConfirmedState] = createSignal({ muted: false, deafened: false })
@@ -36,6 +56,77 @@ const [reconnectState, setReconnectState] = createSignal({
   muted: false,
   deafened: false
 })
+
+function transitionVoiceLifecycle(
+  next: VoiceLifecycleState,
+  source: string,
+  force: boolean = false
+): boolean {
+  const current = voiceLifecycle()
+  if (current === next) {
+    return true
+  }
+
+  const allowed = VOICE_TRANSITIONS[current]?.includes(next) ?? false
+  if (!allowed && !force) {
+    log.warn("Ignored invalid voice transition", { current, next, source })
+    return false
+  }
+
+  if (!allowed && force) {
+    log.warn("Forced voice transition", { current, next, source })
+  }
+
+  setVoiceLifecycle(next)
+  return true
+}
+
+function resetLocalVoiceState(source: string): void {
+  setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
+  transitionVoiceLifecycle("not_in_voice", source, true)
+}
+
+function sendVoiceLeaveIdempotent(reason: string): void {
+  if (leaveInFlight) {
+    return
+  }
+
+  leaveInFlight = true
+  try {
+    if (connectionService.getSession()?.status === "connected") {
+      wsManager.leaveVoice()
+      log.info("Sent VOICE_LEAVE during cleanup", { reason })
+    }
+  } finally {
+    queueMicrotask(() => {
+      leaveInFlight = false
+    })
+  }
+}
+
+function cleanupVoiceStartupFailure(reason: string): void {
+  const lifecycle = voiceLifecycle()
+  const voice = localVoice()
+  if (lifecycle !== "joining" && !voice.connecting) {
+    return
+  }
+
+  transitionVoiceLifecycle("leaving", `startup-failure:${reason}`, true)
+  sendVoiceLeaveIdempotent(reason)
+  webrtcManager.stop()
+
+  const userId = connectionService.getUserId()
+  if (userId) {
+    updateUser(userId, {
+      inVoice: false,
+      voiceMuted: false,
+      voiceDeafened: false,
+      voiceSpeaking: false
+    })
+  }
+
+  resetLocalVoiceState(`startup-failure:${reason}`)
+}
 
 // Set up WebRTC error handling
 webrtcManager.onError(handleWebRTCError)
@@ -57,6 +148,10 @@ function handleWebRTCError(error: WebRTCError): void {
   const message = getErrorMessage(statusCode)
 
   setStatus({ type: "voice", code: statusCode, message })
+
+  if (STARTUP_FAILURE_CODES.has(error.code)) {
+    cleanupVoiceStartupFailure(`webrtc:${error.code}`)
+  }
 }
 
 function clearVoiceErrors(): void {
@@ -100,6 +195,7 @@ function handleVoiceStateUpdate(payload: VoiceStateUpdatePayload): void {
           deafened: payload.deafened
         }))
       } else {
+        transitionVoiceLifecycle("active", "server-voice-state", true)
         setLocalVoice((prev) => ({
           ...prev,
           inVoice: true,
@@ -108,12 +204,7 @@ function handleVoiceStateUpdate(payload: VoiceStateUpdatePayload): void {
         }))
       }
     } else {
-      setLocalVoice({
-        connecting: false,
-        inVoice: false,
-        muted: false,
-        deafened: false
-      })
+      resetLocalVoiceState("server-voice-state")
     }
   }
 
@@ -124,6 +215,11 @@ function handleVoiceStateUpdate(payload: VoiceStateUpdatePayload): void {
 
 async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
   log.info("RTC ready, starting WebRTC")
+
+  if (voiceLifecycle() !== "joining") {
+    log.warn("Ignoring RTC_READY in non-joining state", { state: voiceLifecycle() })
+    return
+  }
 
   const iceServers: RTCIceServer[] = (payload.ice_servers ?? []).map((server) => ({
     urls: server.urls,
@@ -143,6 +239,7 @@ async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
 
     clearVoiceErrors()
     playSound("user-join")
+    transitionVoiceLifecycle("active", "rtc-ready")
     setLocalVoice((prev) => ({ ...prev, connecting: false, inVoice: true }))
     if (userId) {
       updateUser(userId, {
@@ -161,7 +258,7 @@ async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
     })
   } catch (err) {
     log.error("Failed to start WebRTC:", err)
-    setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
+    cleanupVoiceStartupFailure("rtc-ready-start")
   }
 }
 
@@ -181,9 +278,10 @@ function handleVoiceStateCooldown(): void {
 }
 
 function handleVoiceJoinCooldown(): void {
+  resetLocalVoiceState("voice-join-cooldown")
+
   const userId = connectionService.getUserId()
   if (userId) {
-    setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
     updateUser(userId, {
       inVoice: false,
       voiceMuted: false,
@@ -212,20 +310,64 @@ function handleServerError(payload: ErrorPayload): void {
       message: getErrorMessage(ERROR_CODES.VOICE_JOIN_COOLDOWN),
       expiresAt
     })
+  } else if (payload.code === "VOICE_JOIN_FAILED") {
+    setStatus({
+      type: "voice",
+      code: ERROR_CODES.VOICE_JOIN_FAILED,
+      message: getErrorMessage(ERROR_CODES.VOICE_JOIN_FAILED)
+    })
+    cleanupVoiceStartupFailure("server:VOICE_JOIN_FAILED")
+  } else if (payload.code === "VOICE_STATE_INVALID_TRANSITION") {
+    setStatus({
+      type: "voice",
+      code: ERROR_CODES.VOICE_STATE_INVALID_TRANSITION,
+      message: getErrorMessage(ERROR_CODES.VOICE_STATE_INVALID_TRANSITION),
+      expiresAt: Date.now() + 5_000
+    })
+  } else if (payload.code === "VOICE_NEGOTIATION_INVALID_STATE") {
+    setStatus({
+      type: "voice",
+      code: ERROR_CODES.VOICE_NEGOTIATION_INVALID_STATE,
+      message: getErrorMessage(ERROR_CODES.VOICE_NEGOTIATION_INVALID_STATE),
+      expiresAt: Date.now() + 5_000
+    })
+  } else if (payload.code === "VOICE_NEGOTIATION_FAILED") {
+    setStatus({
+      type: "voice",
+      code: ERROR_CODES.VOICE_NEGOTIATION_FAILED,
+      message: getErrorMessage(ERROR_CODES.VOICE_NEGOTIATION_FAILED)
+    })
+    cleanupVoiceStartupFailure("server:VOICE_NEGOTIATION_FAILED")
+  } else if (payload.code === "VOICE_NEGOTIATION_TIMEOUT") {
+    setStatus({
+      type: "voice",
+      code: ERROR_CODES.VOICE_NEGOTIATION_TIMEOUT,
+      message: getErrorMessage(ERROR_CODES.VOICE_NEGOTIATION_TIMEOUT)
+    })
+    cleanupVoiceStartupFailure("server:VOICE_NEGOTIATION_TIMEOUT")
+  } else if (payload.code === "SIGNALING_RATE_LIMITED") {
+    const expiresAt = payload.retry_after ?? Date.now() + 2_000
+    setStatus({
+      type: "voice",
+      code: ERROR_CODES.SIGNALING_RATE_LIMITED,
+      message: getErrorMessage(ERROR_CODES.SIGNALING_RATE_LIMITED),
+      expiresAt
+    })
   }
 }
 
 function stopVoice(): void {
   const voice = localVoice()
-  if (voice.inVoice || voice.connecting) {
+  if (voice.inVoice || voice.connecting || voiceLifecycle() !== "not_in_voice") {
     webrtcManager.stop()
-    setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
+    resetLocalVoiceState("stop-voice")
   }
 }
 
 function joinVoice(): void {
   const userId = connectionService.getUserId()
   if (!userId || connectionService.getSession()?.status !== "connected") return
+  if (!transitionVoiceLifecycle("joining", "joinVoice")) return
 
   setLocalVoice({ connecting: true, inVoice: false, muted: false, deafened: false })
   wsManager.joinVoice(false, false)
@@ -234,15 +376,23 @@ function joinVoice(): void {
 function rejoinVoice(muted: boolean, deafened: boolean): void {
   const userId = connectionService.getUserId()
   if (!userId) return
+  if (!transitionVoiceLifecycle("joining", "rejoinVoice")) return
 
   setLocalVoice({ connecting: true, inVoice: false, muted, deafened })
   wsManager.joinVoice(muted, deafened)
 }
 
 function leaveVoice(): void {
+  const lifecycle = voiceLifecycle()
+  if (lifecycle !== "joining" && lifecycle !== "active") {
+    log.warn("Ignored leaveVoice in invalid state", { lifecycle })
+    return
+  }
+  transitionVoiceLifecycle("leaving", "leaveVoice", true)
+
   stopScreenShare()
 
-  setLocalVoice({ connecting: false, inVoice: false, muted: false, deafened: false })
+  resetLocalVoiceState("leaveVoice")
 
   const userId = connectionService.getUserId()
   if (userId) {
@@ -254,7 +404,7 @@ function leaveVoice(): void {
     })
   }
 
-  wsManager.leaveVoice()
+  sendVoiceLeaveIdempotent("leaveVoice")
   playSound("user-leave")
   webrtcManager.stop()
 }
@@ -262,7 +412,10 @@ function leaveVoice(): void {
 function toggleMute(): void {
   const userId = connectionService.getUserId()
   const voice = localVoice()
-  if (!voice.inVoice || !userId) return
+  if (voiceLifecycle() !== "active" || !voice.inVoice || !userId) {
+    log.warn("Ignored mute toggle in invalid state", { lifecycle: voiceLifecycle() })
+    return
+  }
 
   const newMuted = !voice.muted
 
@@ -286,7 +439,10 @@ function toggleMute(): void {
 function toggleDeafen(): void {
   const userId = connectionService.getUserId()
   const voice = localVoice()
-  if (!voice.inVoice || !userId) return
+  if (voiceLifecycle() !== "active" || !voice.inVoice || !userId) {
+    log.warn("Ignored deafen toggle in invalid state", { lifecycle: voiceLifecycle() })
+    return
+  }
 
   const newDeafened = !voice.deafened
   playSound(newDeafened ? "deafen" : "undeafen")
@@ -319,6 +475,7 @@ function restoreVoiceAfterReconnect(): void {
 
 function resetVoiceReconnectState(): void {
   setReconnectState({ wasInVoice: false, muted: false, deafened: false })
+  transitionVoiceLifecycle("not_in_voice", "reset-reconnect", true)
 }
 
 // Subscribe to WS events

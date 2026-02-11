@@ -42,20 +42,36 @@ const (
 
 // Command types (Client -> Server via DISPATCH)
 const (
-	CmdIdentify              = "IDENTIFY"
-	CmdPresenceSet           = "PRESENCE_SET"
-	CmdMessageSend           = "MESSAGE_SEND"
-	CmdTyping                = "TYPING"
-	CmdVoiceJoin             = "VOICE_JOIN"
-	CmdVoiceLeave            = "VOICE_LEAVE"
-	CmdRtcOffer              = "RTC_OFFER"
-	CmdRtcAnswer             = "RTC_ANSWER"
-	CmdRtcIceCandidate       = "RTC_ICE_CANDIDATE"
-	CmdVoiceStateSet         = "VOICE_STATE_SET"
+	CmdIdentify               = "IDENTIFY"
+	CmdPresenceSet            = "PRESENCE_SET"
+	CmdMessageSend            = "MESSAGE_SEND"
+	CmdTyping                 = "TYPING"
+	CmdVoiceJoin              = "VOICE_JOIN"
+	CmdVoiceLeave             = "VOICE_LEAVE"
+	CmdRtcOffer               = "RTC_OFFER"
+	CmdRtcAnswer              = "RTC_ANSWER"
+	CmdRtcIceCandidate        = "RTC_ICE_CANDIDATE"
+	CmdVoiceStateSet          = "VOICE_STATE_SET"
 	CmdScreenShareStart       = "SCREEN_SHARE_START"
 	CmdScreenShareStop        = "SCREEN_SHARE_STOP"
 	CmdScreenShareSubscribe   = "SCREEN_SHARE_SUBSCRIBE"
 	CmdScreenShareUnsubscribe = "SCREEN_SHARE_UNSUBSCRIBE"
+)
+
+// Error codes sent in EventError payloads.
+const (
+	ErrCodeAuthFailed                   = "AUTH_FAILED"
+	ErrCodeRateLimited                  = "RATE_LIMITED"
+	ErrCodeMessageTooLong               = "MESSAGE_TOO_LONG"
+	ErrCodeVoiceJoinCooldown            = "VOICE_JOIN_COOLDOWN"
+	ErrCodeVoiceStateCooldown           = "VOICE_STATE_COOLDOWN"
+	ErrCodeVoiceJoinFailed              = "VOICE_JOIN_FAILED"
+	ErrCodeVoiceNotInChannel            = "NOT_IN_VOICE"
+	ErrCodeVoiceStateInvalidTransition  = "VOICE_STATE_INVALID_TRANSITION"
+	ErrCodeVoiceNegotiationInvalidState = "VOICE_NEGOTIATION_INVALID_STATE"
+	ErrCodeVoiceNegotiationFailed       = "VOICE_NEGOTIATION_FAILED"
+	ErrCodeVoiceNegotiationTimeout      = "VOICE_NEGOTIATION_TIMEOUT"
+	ErrCodeSignalingRateLimited         = "SIGNALING_RATE_LIMITED"
 )
 
 type WSMessage struct {

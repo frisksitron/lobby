@@ -3,6 +3,14 @@ server:
   host: "0.0.0.0"
   port: 8080
   base_url: "http://localhost:8080"
+  websocket:
+    # Optional explicit origin allowlist. Supports trailing * wildcard (prefix match).
+    # Leave empty to default to the base_url origin plus loopback origins.
+    allowed_origins: []
+    # Concurrent unidentified websocket connection budgets.
+    max_unauthenticated_per_ip: 20
+    max_unauthenticated_global: 200
+    unauthenticated_timeout: 10s
 
 database:
   path: "./data/lobby.db"

@@ -70,9 +70,16 @@ const (
 	maxMessageContentLength = 8000
 
 	// Mute/deafen cooldown: 5 toggles in 5s triggers a 10s cooldown
-	voiceToggleLimit = 5
+	voiceToggleLimit      = 5
 	voiceToggleWindow     = 5 * time.Second
 	voiceCooldownDuration = 10 * time.Second
+
+	// Signaling command budgets
+	rtcSignalingLimit  = 300
+	rtcSignalingWindow = 10 * time.Second
+
+	screenShareSignalingLimit  = 40
+	screenShareSignalingWindow = 10 * time.Second
 )
 
 // Client represents a single WebSocket connection
@@ -82,6 +89,12 @@ type Client struct {
 	send          chan *WSMessage
 	connCloseOnce sync.Once
 	sendCloseOnce sync.Once
+
+	callbackMu              sync.Mutex
+	identifiedCallbacks     []func(*Client)
+	closeCallbacks          []func(*Client)
+	identifiedCallbacksOnce sync.Once
+	closeCallbacksOnce      sync.Once
 
 	// Lifecycle state (replaces: closeOnce, done, identified)
 	state atomic.Int32
@@ -102,6 +115,9 @@ type Client struct {
 	voiceJoinCooldownAt time.Time   // when join cooldown expires
 	voiceToggles        []time.Time // timestamps of recent mute/deafen toggles
 	voiceCooldownAt     time.Time   // when mute/deafen cooldown expires
+
+	rtcSignals         []time.Time // timestamps of recent RTC signaling commands
+	screenShareSignals []time.Time // timestamps of recent screen-share signaling commands
 }
 
 // NewClient creates a new client
@@ -116,6 +132,56 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 	return c
 }
 
+func (c *Client) OnIdentified(callback func(*Client)) {
+	if callback == nil {
+		return
+	}
+	if c.IsIdentified() {
+		callback(c)
+		return
+	}
+	c.callbackMu.Lock()
+	c.identifiedCallbacks = append(c.identifiedCallbacks, callback)
+	c.callbackMu.Unlock()
+}
+
+func (c *Client) OnClose(callback func(*Client)) {
+	if callback == nil {
+		return
+	}
+	if c.IsClosed() {
+		callback(c)
+		return
+	}
+	c.callbackMu.Lock()
+	c.closeCallbacks = append(c.closeCallbacks, callback)
+	c.callbackMu.Unlock()
+}
+
+func (c *Client) runIdentifiedCallbacks() {
+	c.identifiedCallbacksOnce.Do(func() {
+		c.callbackMu.Lock()
+		callbacks := append([]func(*Client){}, c.identifiedCallbacks...)
+		c.identifiedCallbacks = nil
+		c.callbackMu.Unlock()
+		for _, callback := range callbacks {
+			callback(c)
+		}
+	})
+}
+
+func (c *Client) runCloseCallbacks() {
+	c.closeCallbacksOnce.Do(func() {
+		c.callbackMu.Lock()
+		callbacks := append([]func(*Client){}, c.closeCallbacks...)
+		c.closeCallbacks = nil
+		c.callbackMu.Unlock()
+		for _, callback := range callbacks {
+			callback(c)
+		}
+	})
+}
+
 // Close performs cleanup for the client, ensuring it only happens once
 func (c *Client) Close() {
 	if !c.transitionTo(ClientStateClosing) {
@@ -123,6 +189,7 @@ func (c *Client) Close() {
 		c.connCloseOnce.Do(func() { c.conn.Close() })
 		return
 	}
+	c.runCloseCallbacks()
 	c.connCloseOnce.Do(func() { c.conn.Close() })
 	c.transitionTo(ClientStateClosed)
 }
@@ -238,24 +305,99 @@ func (c *Client) handleDispatch(msg *WSMessage) {
 	case CmdVoiceLeave:
 		c.handleVoiceLeave()
 	case CmdRtcOffer:
+		if !c.allowRTCSignaling(msg.Type) {
+			return
+		}
 		c.handleRtcOffer(msg)
 	case CmdRtcAnswer:
+		if !c.allowRTCSignaling(msg.Type) {
+			return
+		}
 		c.handleRtcAnswer(msg)
 	case CmdRtcIceCandidate:
+		if !c.allowRTCSignaling(msg.Type) {
+			return
+		}
 		c.handleRtcIceCandidate(msg)
 	case CmdVoiceStateSet:
 		c.handleVoiceStateSet(msg)
 	case CmdScreenShareStart:
+		if !c.allowScreenShareSignaling(msg.Type) {
+			return
+		}
 		c.handleScreenShareStart()
 	case CmdScreenShareStop:
+		if !c.allowScreenShareSignaling(msg.Type) {
+			return
+		}
 		c.handleScreenShareStop()
 	case CmdScreenShareSubscribe:
+		if !c.allowScreenShareSignaling(msg.Type) {
+			return
+		}
 		c.handleScreenShareSubscribe(msg)
 	case CmdScreenShareUnsubscribe:
+		if !c.allowScreenShareSignaling(msg.Type) {
+			return
+		}
 		c.handleScreenShareUnsubscribe()
 	default:
 		slog.Warn("unknown dispatch type", "component", "ws", "type", msg.Type)
 	}
+}
+
+func (c *Client) allowRTCSignaling(command string) bool {
+	ok, retryAfter := c.allowCommandRateLimit(&c.rtcSignals, rtcSignalingLimit, rtcSignalingWindow)
+	if ok {
+		return true
+	}
+	c.rejectSignalingRateLimit(command, retryAfter)
+	return false
+}
+
+func (c *Client) allowScreenShareSignaling(command string) bool {
+	ok, retryAfter := c.allowCommandRateLimit(&c.screenShareSignals, screenShareSignalingLimit, screenShareSignalingWindow)
+	if ok {
+		return true
+	}
+	c.rejectSignalingRateLimit(command, retryAfter)
+	return false
+}
+
+func (c *Client) allowCommandRateLimit(times *[]time.Time, limit int, window time.Duration) (bool, int64) {
+	now := time.Now()
+	cutoff := now.Add(-window)
+
+	filtered := (*times)[:0]
+	for _, t := range *times {
+		if t.After(cutoff) {
+			filtered = append(filtered, t)
+		}
+	}
+
+	if len(filtered) >= limit {
+		retryAfter := filtered[0].Add(window).UnixMilli()
+		*times = filtered
+		return false, retryAfter
+	}
+
+	filtered = append(filtered, now)
+	*times = filtered
+	return true, 0
+}
+
+func (c *Client) rejectSignalingRateLimit(command string, retryAfter int64) {
+	c.send <- &WSMessage{
+		Op:   OpDispatch,
+		Type: EventError,
+		Data: ErrorPayload{
+			Code:       ErrCodeSignalingRateLimited,
+			Message:    "Signaling rate limited",
+			RetryAfter: retryAfter,
+		},
+	}
+
+	slog.Warn("signaling command rate limited", "component", "ws", "user_id", c.getUserID(), "command", command, "retry_after", retryAfter)
 }
 
 func (c *Client) handleIdentify(msg *WSMessage) {
@@ -269,7 +411,7 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 	token, _ := data["token"].(string)
 	if token == "" {
 		slog.Warn("IDENTIFY missing token", "component", "ws")
-		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "Missing token"}}
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "Missing token"}}
 		c.Close()
 		return
 	}
@@ -277,7 +419,7 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 	claims, err := c.hub.jwtService.ValidateAccessToken(token)
 	if err != nil {
 		slog.Warn("IDENTIFY invalid token", "component", "ws", "error", err)
-		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "Invalid token"}}
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "Invalid token"}}
 		c.Close()
 		return
 	}
@@ -285,7 +427,7 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 	user, err := c.hub.userRepo.FindByID(claims.UserID)
 	if err != nil {
 		slog.Warn("IDENTIFY user not found", "component", "ws", "error", err)
-		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: "AUTH_FAILED", Message: "User not found"}}
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "User not found"}}
 		c.Close()
 		return
 	}
@@ -297,6 +439,7 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		return // Race: already transitioned
 	}
 	c.sessionID = uuid.New().String()
+	c.runIdentifiedCallbacks()
 
 	if presence, ok := data["presence"].(map[string]interface{}); ok {
 		if status, ok := presence["status"].(string); ok {
@@ -359,7 +502,7 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 			Op:   OpDispatch,
 			Type: EventError,
 			Data: ErrorPayload{
-				Code:    "MESSAGE_TOO_LONG",
+				Code:    ErrCodeMessageTooLong,
 				Message: "Message exceeds maximum length",
 				Nonce:   nonce,
 			},
@@ -374,7 +517,7 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 			Op:   OpDispatch,
 			Type: EventError,
 			Data: ErrorPayload{
-				Code:    "RATE_LIMITED",
+				Code:    ErrCodeRateLimited,
 				Message: "Sending too fast",
 				Nonce:   nonce,
 			},
@@ -518,6 +661,7 @@ func (c *Client) transitionTo(newState ClientState) bool {
 func (c *Client) CloseSend() {
 	c.sendCloseOnce.Do(func() { close(c.send) })
 	if c.transitionTo(ClientStateClosing) {
+		c.runCloseCallbacks()
 		c.connCloseOnce.Do(func() { c.conn.Close() })
 		c.transitionTo(ClientStateClosed)
 	}
@@ -525,6 +669,18 @@ func (c *Client) CloseSend() {
 
 func (c *Client) handleVoiceJoin(msg *WSMessage) {
 	if !c.IsIdentified() {
+		return
+	}
+
+	if c.hub.GetVoiceLifecycleState(c.user.ID) != VoiceLifecycleNotInVoice {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceStateInvalidTransition,
+				Message: "Cannot join voice from current state",
+			},
+		}
 		return
 	}
 
@@ -536,7 +692,7 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 			Op:   OpDispatch,
 			Type: EventError,
 			Data: ErrorPayload{
-				Code:       "VOICE_JOIN_COOLDOWN",
+				Code:       ErrCodeVoiceJoinCooldown,
 				Message:    "Joining too fast, slow down",
 				RetryAfter: c.voiceJoinCooldownAt.UnixMilli(),
 			},
@@ -563,7 +719,7 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 			Op:   OpDispatch,
 			Type: EventError,
 			Data: ErrorPayload{
-				Code:       "VOICE_JOIN_COOLDOWN",
+				Code:       ErrCodeVoiceJoinCooldown,
 				Message:    "Joining too fast, slow down",
 				RetryAfter: c.voiceJoinCooldownAt.UnixMilli(),
 			},
@@ -582,27 +738,35 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 		}
 	}
 
+	if err := c.hub.BeginVoiceJoin(c.user.ID, muted, deafened); err != nil {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceStateInvalidTransition,
+				Message: "Cannot join voice from current state",
+			},
+		}
+		return
+	}
+
 	sfuInst := c.hub.GetSFU()
 	if sfuInst != nil {
 		_, err := sfuInst.AddPeer(c.user.ID)
 		if err != nil {
+			c.hub.DiscardVoiceSession(c.user.ID)
 			slog.Error("error creating SFU peer", "component", "ws", "user_id", c.user.ID, "error", err)
 			c.send <- &WSMessage{
 				Op:   OpDispatch,
 				Type: EventError,
 				Data: ErrorPayload{
-					Code:    "VOICE_JOIN_FAILED",
+					Code:    ErrCodeVoiceJoinFailed,
 					Message: "Failed to join voice",
 				},
 			}
 			return
 		}
 	}
-
-	c.hub.SetUserVoiceState(c.user.ID, &VoiceState{
-		Muted:    muted,
-		Deafened: deafened,
-	})
 
 	participants := c.hub.GetVoiceParticipantIDs(c.user.ID)
 
@@ -627,16 +791,20 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 	// Server initiates offers to ensure it's always the ICE controlling agent
 	if sfuInst != nil {
 		if err := sfuInst.SendInitialOffer(c.user.ID); err != nil {
+			c.hub.DiscardVoiceSession(c.user.ID)
+			sfuInst.RemovePeer(c.user.ID)
 			slog.Error("error sending initial offer", "component", "ws", "user_id", c.user.ID, "error", err)
+			c.send <- &WSMessage{
+				Op:   OpDispatch,
+				Type: EventError,
+				Data: ErrorPayload{
+					Code:    ErrCodeVoiceNegotiationFailed,
+					Message: "Failed to start voice negotiation",
+				},
+			}
+			return
 		}
 	}
-
-	c.hub.BroadcastDispatch(EventVoiceStateUpdate, VoiceStateUpdatePayload{
-		UserID:   c.user.ID,
-		InVoice:  true,
-		Muted:    muted,
-		Deafened: deafened,
-	})
 
 	slog.Info("user joined voice", "component", "ws", "user_id", c.user.ID, "muted", muted, "deafened", deafened)
 }
@@ -646,36 +814,31 @@ func (c *Client) handleVoiceLeave() {
 		return
 	}
 
-	if c.hub.GetUserVoiceState(c.user.ID) == nil {
+	_, removed := c.hub.RemoveUserFromVoice(c.user.ID)
+	if !removed {
 		return
 	}
 
-	// Stop screen share if active
-	sm := c.hub.GetScreenShareManager()
-	if sm != nil {
-		sm.StopShare(c.user.ID)
-		sm.Unsubscribe(c.user.ID)
-	}
-
-	c.hub.RemoveUserFromVoice(c.user.ID)
-
-	sfuInst := c.hub.GetSFU()
-	if sfuInst != nil {
-		sfuInst.RemovePeer(c.user.ID)
-	}
-
-	c.hub.BroadcastDispatch(EventVoiceStateUpdate, VoiceStateUpdatePayload{
-		UserID:   c.user.ID,
-		InVoice:  false,
-		Muted:    false,
-		Deafened: false,
-	})
+	c.hub.cleanupVoiceForUser(c.user.ID)
 
 	slog.Info("user left voice", "component", "ws", "user_id", c.user.ID)
 }
 
 func (c *Client) handleRtcOffer(msg *WSMessage) {
 	if !c.IsIdentified() {
+		return
+	}
+
+	state := c.hub.GetVoiceLifecycleState(c.user.ID)
+	if state != VoiceLifecycleJoining && state != VoiceLifecycleActive {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceNegotiationInvalidState,
+				Message: "RTC offer rejected in current voice state",
+			},
+		}
 		return
 	}
 
@@ -694,6 +857,14 @@ func (c *Client) handleRtcOffer(msg *WSMessage) {
 	answerSDP, err := c.hub.HandleRtcOffer(c.user.ID, sdp)
 	if err != nil {
 		slog.Error("error handling RTC offer", "component", "ws", "user_id", c.user.ID, "error", err)
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceNegotiationFailed,
+				Message: "Failed to process RTC offer",
+			},
+		}
 		return
 	}
 
@@ -714,6 +885,19 @@ func (c *Client) handleRtcAnswer(msg *WSMessage) {
 		return
 	}
 
+	state := c.hub.GetVoiceLifecycleState(c.user.ID)
+	if state != VoiceLifecycleJoining && state != VoiceLifecycleActive {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceNegotiationInvalidState,
+				Message: "RTC answer rejected in current voice state",
+			},
+		}
+		return
+	}
+
 	data, ok := msg.Data.(map[string]interface{})
 	if !ok {
 		slog.Warn("invalid RTC_ANSWER payload", "component", "ws", "user_id", c.user.ID)
@@ -728,7 +912,37 @@ func (c *Client) handleRtcAnswer(msg *WSMessage) {
 
 	if err := c.hub.HandleRtcAnswer(c.user.ID, sdp); err != nil {
 		slog.Error("error handling RTC answer", "component", "ws", "user_id", c.user.ID, "error", err)
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceNegotiationFailed,
+				Message: "Failed to process RTC answer",
+			},
+		}
 		return
+	}
+
+	if state == VoiceLifecycleJoining {
+		voiceState, err := c.hub.ActivateVoiceSession(c.user.ID)
+		if err != nil {
+			c.send <- &WSMessage{
+				Op:   OpDispatch,
+				Type: EventError,
+				Data: ErrorPayload{
+					Code:    ErrCodeVoiceStateInvalidTransition,
+					Message: "Cannot activate voice session",
+				},
+			}
+			return
+		}
+
+		c.hub.BroadcastDispatch(EventVoiceStateUpdate, VoiceStateUpdatePayload{
+			UserID:   c.user.ID,
+			InVoice:  true,
+			Muted:    voiceState.Muted,
+			Deafened: voiceState.Deafened,
+		})
 	}
 
 	slog.Debug("processed RTC answer", "component", "ws", "user_id", c.user.ID)
@@ -736,6 +950,19 @@ func (c *Client) handleRtcAnswer(msg *WSMessage) {
 
 func (c *Client) handleRtcIceCandidate(msg *WSMessage) {
 	if !c.IsIdentified() {
+		return
+	}
+
+	state := c.hub.GetVoiceLifecycleState(c.user.ID)
+	if state != VoiceLifecycleJoining && state != VoiceLifecycleActive {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceNegotiationInvalidState,
+				Message: "ICE candidate rejected in current voice state",
+			},
+		}
 		return
 	}
 
@@ -763,6 +990,14 @@ func (c *Client) handleRtcIceCandidate(msg *WSMessage) {
 
 	if err := c.hub.HandleRtcIceCandidate(c.user.ID, candidate, sdpMid, sdpMLineIndex); err != nil {
 		slog.Error("error handling ICE candidate", "component", "ws", "user_id", c.user.ID, "error", err)
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceNegotiationFailed,
+				Message: "Failed to process ICE candidate",
+			},
+		}
 		return
 	}
 }
@@ -774,6 +1009,18 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 
 	data, ok := msg.Data.(map[string]interface{})
 	if !ok {
+		return
+	}
+
+	if c.hub.GetVoiceLifecycleState(c.user.ID) != VoiceLifecycleActive {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceStateInvalidTransition,
+				Message: "Voice state updates require an active voice session",
+			},
+		}
 		return
 	}
 
@@ -815,7 +1062,7 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 				Op:   OpDispatch,
 				Type: EventError,
 				Data: ErrorPayload{
-					Code:       "VOICE_STATE_COOLDOWN",
+					Code:       ErrCodeVoiceStateCooldown,
 					Message:    "Too many toggles, try again in a moment",
 					RetryAfter: c.voiceCooldownAt.UnixMilli(),
 				},
@@ -842,7 +1089,7 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 				Op:   OpDispatch,
 				Type: EventError,
 				Data: ErrorPayload{
-					Code:       "VOICE_STATE_COOLDOWN",
+					Code:       ErrCodeVoiceStateCooldown,
 					Message:    "Too many toggles, try again in a moment",
 					RetryAfter: c.voiceCooldownAt.UnixMilli(),
 				},
@@ -869,12 +1116,12 @@ func (c *Client) handleScreenShareStart() {
 	}
 
 	// User must be in voice to screen share
-	if c.hub.GetUserVoiceState(c.user.ID) == nil {
+	if c.hub.GetVoiceLifecycleState(c.user.ID) != VoiceLifecycleActive {
 		c.send <- &WSMessage{
 			Op:   OpDispatch,
 			Type: EventError,
 			Data: ErrorPayload{
-				Code:    "NOT_IN_VOICE",
+				Code:    ErrCodeVoiceNotInChannel,
 				Message: "Must be in voice to screen share",
 			},
 		}
@@ -917,7 +1164,15 @@ func (c *Client) handleScreenShareSubscribe(msg *WSMessage) {
 	}
 
 	// Must be in voice to subscribe to screen shares
-	if c.hub.GetUserVoiceState(c.user.ID) == nil {
+	if c.hub.GetVoiceLifecycleState(c.user.ID) != VoiceLifecycleActive {
+		c.send <- &WSMessage{
+			Op:   OpDispatch,
+			Type: EventError,
+			Data: ErrorPayload{
+				Code:    ErrCodeVoiceNotInChannel,
+				Message: "Must be in voice to subscribe to screen share",
+			},
+		}
 		return
 	}
 
@@ -953,4 +1208,3 @@ func (c *Client) handleScreenShareUnsubscribe() {
 
 	sm.Unsubscribe(c.user.ID)
 }
-

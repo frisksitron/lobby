@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -34,10 +36,18 @@ type TURNConfig struct {
 }
 
 type ServerConfig struct {
-	Name    string `yaml:"name"`
-	Host    string `yaml:"host"`
-	Port    int    `yaml:"port"`
-	BaseURL string `yaml:"base_url"`
+	Name      string          `yaml:"name"`
+	Host      string          `yaml:"host"`
+	Port      int             `yaml:"port"`
+	BaseURL   string          `yaml:"base_url"`
+	WebSocket WebSocketConfig `yaml:"websocket"`
+}
+
+type WebSocketConfig struct {
+	AllowedOrigins           []string      `yaml:"allowed_origins"`
+	MaxUnauthenticatedPerIP  int           `yaml:"max_unauthenticated_per_ip"`
+	MaxUnauthenticatedGlobal int           `yaml:"max_unauthenticated_global"`
+	UnauthenticatedTimeout   time.Duration `yaml:"unauthenticated_timeout"`
 }
 
 type DatabaseConfig struct {
@@ -119,10 +129,28 @@ func envDuration(key string, dst *time.Duration) {
 	}
 }
 
+func envStringSlice(key string, dst *[]string) {
+	if v := os.Getenv(key); v != "" {
+		parts := strings.Split(v, ",")
+		origins := make([]string, 0, len(parts))
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				origins = append(origins, trimmed)
+			}
+		}
+		*dst = origins
+	}
+}
+
 func (c *Config) applyEnvOverrides() {
 	// Server
 	envString("LOBBY_SERVER_NAME", &c.Server.Name)
 	envString("LOBBY_SERVER_BASE_URL", &c.Server.BaseURL)
+	envStringSlice("LOBBY_WS_ALLOWED_ORIGINS", &c.Server.WebSocket.AllowedOrigins)
+	envInt("LOBBY_WS_MAX_UNAUTH_PER_IP", &c.Server.WebSocket.MaxUnauthenticatedPerIP)
+	envInt("LOBBY_WS_MAX_UNAUTH_GLOBAL", &c.Server.WebSocket.MaxUnauthenticatedGlobal)
+	envDuration("LOBBY_WS_UNAUTH_TIMEOUT", &c.Server.WebSocket.UnauthenticatedTimeout)
 
 	// Database
 	envString("LOBBY_DATABASE_PATH", &c.Database.Path)
@@ -174,6 +202,33 @@ func (c *Config) validate() error {
 	if c.Email.SMTP.From == "" {
 		return fmt.Errorf("email.smtp.from is required")
 	}
+	if c.Server.WebSocket.MaxUnauthenticatedPerIP < 0 {
+		return fmt.Errorf("server.websocket.max_unauthenticated_per_ip must be >= 0")
+	}
+	if c.Server.WebSocket.MaxUnauthenticatedGlobal < 0 {
+		return fmt.Errorf("server.websocket.max_unauthenticated_global must be >= 0")
+	}
+	if c.Server.WebSocket.UnauthenticatedTimeout < 0 {
+		return fmt.Errorf("server.websocket.unauthenticated_timeout must be >= 0")
+	}
+	for _, origin := range c.Server.WebSocket.AllowedOrigins {
+		if origin == "null" {
+			continue
+		}
+		if strings.Contains(origin, "*") {
+			if strings.Count(origin, "*") > 1 || !strings.HasSuffix(origin, "*") {
+				return fmt.Errorf("server.websocket.allowed_origins wildcard must be a single trailing *: %q", origin)
+			}
+			trimmed := strings.TrimSuffix(origin, "*")
+			if trimmed == "" {
+				return fmt.Errorf("server.websocket.allowed_origins wildcard prefix cannot be empty")
+			}
+			continue
+		}
+		if _, err := url.ParseRequestURI(origin); err != nil {
+			return fmt.Errorf("server.websocket.allowed_origins contains invalid origin %q: %w", origin, err)
+		}
+	}
 	return nil
 }
 
@@ -189,6 +244,20 @@ func (c *Config) setDefaults() {
 	}
 	if c.Server.BaseURL == "" {
 		c.Server.BaseURL = fmt.Sprintf("http://%s:%d", c.Server.Host, c.Server.Port)
+	}
+	if len(c.Server.WebSocket.AllowedOrigins) == 0 {
+		if u, err := url.Parse(c.Server.BaseURL); err == nil && u.Scheme != "" && u.Host != "" {
+			c.Server.WebSocket.AllowedOrigins = []string{u.Scheme + "://" + u.Host, "null"}
+		}
+	}
+	if c.Server.WebSocket.MaxUnauthenticatedPerIP == 0 {
+		c.Server.WebSocket.MaxUnauthenticatedPerIP = 20
+	}
+	if c.Server.WebSocket.MaxUnauthenticatedGlobal == 0 {
+		c.Server.WebSocket.MaxUnauthenticatedGlobal = 200
+	}
+	if c.Server.WebSocket.UnauthenticatedTimeout == 0 {
+		c.Server.WebSocket.UnauthenticatedTimeout = 10 * time.Second
 	}
 	if c.Database.Path == "" {
 		c.Database.Path = "./data/lobby.db"

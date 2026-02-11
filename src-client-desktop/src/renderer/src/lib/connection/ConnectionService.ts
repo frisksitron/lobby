@@ -179,7 +179,87 @@ class ConnectionService {
           message: "",
           since: Date.now()
         })
+      } else if (
+        this.phase() !== "connected" &&
+        this.connectionDetail().reason === "browser_offline" &&
+        this.currentServer()?.id
+      ) {
+        const serverId = this.currentServer()?.id
+        if (!serverId) {
+          return
+        }
+
+        this.retry.cancel()
+        this.setConnectionDetail({
+          status: "reconnecting",
+          reason: "ws_closed",
+          message: "Connection restored. Reconnecting...",
+          since: Date.now(),
+          reconnectAttempt: 0,
+          maxReconnectAttempts: this.retry.getMaxAttempts()
+        })
+        this.scheduleRetry(serverId)
       }
+    })
+  }
+
+  private setAuthExpiredState(message: string): void {
+    this.setPhase("needs_auth")
+    this.setConnectionDetail({
+      status: "unavailable",
+      reason: "auth_expired",
+      message,
+      since: Date.now()
+    })
+  }
+
+  private classifyDisconnectReason(): "browser_offline" | "auth_expired" | "server_error" {
+    if (!wsManager.getIsOnline()) {
+      return "browser_offline"
+    }
+
+    const serverError = wsManager.getLastServerError()
+    if (serverError?.code === "AUTH_FAILED") {
+      return "auth_expired"
+    }
+
+    const disconnectInfo = wsManager.getLastDisconnectInfo()
+    if (
+      disconnectInfo?.serverErrorCode === "AUTH_FAILED" ||
+      disconnectInfo?.code === 1008 ||
+      disconnectInfo?.code === 4001
+    ) {
+      return "auth_expired"
+    }
+
+    return "server_error"
+  }
+
+  private applyConnectionFailureClassification(defaultMessage: string): void {
+    const reason = this.classifyDisconnectReason()
+
+    if (reason === "browser_offline") {
+      this.setPhase("failed")
+      this.setConnectionDetail({
+        status: "offline",
+        reason: "browser_offline",
+        message: "You're offline. Check your internet connection.",
+        since: Date.now()
+      })
+      return
+    }
+
+    if (reason === "auth_expired") {
+      this.setAuthExpiredState("Session expired. Sign in to continue.")
+      return
+    }
+
+    this.setPhase("failed")
+    this.setConnectionDetail({
+      status: "unavailable",
+      reason: "server_error",
+      message: defaultMessage,
+      since: Date.now()
     })
   }
 
@@ -301,6 +381,25 @@ class ConnectionService {
             status: "unavailable",
             reason: "session_replaced",
             message: "Signed in from another device.",
+            since: Date.now()
+          })
+          this.emit("disconnected", undefined)
+          return
+        }
+
+        const disconnectReason = this.classifyDisconnectReason()
+        if (disconnectReason === "auth_expired") {
+          this.setAuthExpiredState("Session expired. Sign in to continue.")
+          this.emit("disconnected", undefined)
+          return
+        }
+
+        if (disconnectReason === "browser_offline") {
+          this.setPhase("failed")
+          this.setConnectionDetail({
+            status: "offline",
+            reason: "browser_offline",
+            message: "You're offline. Check your internet connection.",
             since: Date.now()
           })
           this.emit("disconnected", undefined)
@@ -512,7 +611,7 @@ class ConnectionService {
     } catch (error) {
       if (this.connectGeneration !== generation) return false
       if (error instanceof ApiError && error.status === 401) {
-        this.setPhase("needs_auth")
+        this.setAuthExpiredState("Session expired. Sign in to continue.")
       } else {
         this.setPhase("failed")
         this.setConnectionDetail({
@@ -534,13 +633,7 @@ class ConnectionService {
       return true
     } catch {
       if (this.connectGeneration !== generation) return false
-      this.setPhase("failed")
-      this.setConnectionDetail({
-        status: "unavailable",
-        reason: "server_error",
-        message: "Server unavailable. Retrying...",
-        since: Date.now()
-      })
+      this.applyConnectionFailureClassification("Server unavailable. Retrying...")
       return false
     }
   }
@@ -585,7 +678,7 @@ class ConnectionService {
       await window.api.settings.set("lastActiveServerId", serverId)
     } catch {
       if (this.connectGeneration !== generation) return
-      this.setPhase("needs_auth")
+      this.applyConnectionFailureClassification("Server unavailable. Retrying...")
     }
   }
 

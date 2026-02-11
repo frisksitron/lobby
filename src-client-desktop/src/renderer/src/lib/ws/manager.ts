@@ -34,6 +34,13 @@ const log = createLogger("WS")
 
 type EventCallback<T extends WSClientEventType> = (data: WSClientEvents[T]) => void
 
+export interface WSDisconnectInfo {
+  code: number
+  reason: string
+  wasClean: boolean
+  serverErrorCode?: string
+}
+
 class WebSocketManager {
   private ws: WebSocket | null = null
   private token: string = ""
@@ -44,6 +51,8 @@ class WebSocketManager {
   private wsOnMessage: ((event: MessageEvent) => void) | null = null
   private wsOnError: ((event: Event) => void) | null = null
   private wsOnClose: ((event: CloseEvent) => void) | null = null
+  private lastDisconnectInfo: WSDisconnectInfo | null = null
+  private lastServerError: ErrorPayload | null = null
 
   constructor() {
     const eventTypes: WSClientEventType[] = [
@@ -137,6 +146,8 @@ class WebSocketManager {
 
       this.token = token
       this.state = "connecting"
+      this.lastDisconnectInfo = null
+      this.lastServerError = null
 
       const wsUrl = `${serverUrl.replace(/^http/, "ws")}/ws`
 
@@ -191,6 +202,13 @@ class WebSocketManager {
 
       this.wsOnClose = (event: CloseEvent): void => {
         log.info("Connection closed:", event.code, event.reason)
+
+        this.lastDisconnectInfo = {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          serverErrorCode: this.lastServerError?.code
+        }
 
         const wasConnected = this.state === "connected"
         this.state = "disconnected"
@@ -345,6 +363,14 @@ class WebSocketManager {
     return this.state === "connected"
   }
 
+  getLastDisconnectInfo(): WSDisconnectInfo | null {
+    return this.lastDisconnectInfo
+  }
+
+  getLastServerError(): ErrorPayload | null {
+    return this.lastServerError
+  }
+
   private handleMessage(message: WSMessage): void {
     switch (message.op) {
       case WSOpCode.Hello:
@@ -449,7 +475,8 @@ class WebSocketManager {
         break
 
       case WSEventType.Error:
-        this.emit("server_error", message.d as ErrorPayload)
+        this.lastServerError = message.d as ErrorPayload
+        this.emit("server_error", this.lastServerError)
         break
 
       case WSEventType.ScreenShareUpdate:

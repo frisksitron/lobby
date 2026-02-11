@@ -15,6 +15,12 @@ export const ERROR_MESSAGES: Record<string, string> = {
   // WebSocket / Voice rate limits
   "ws.voice_cooldown": "Too many voice toggles. Wait a moment.",
   "ws.voice_join_cooldown": "Joining voice too quickly.",
+  "ws.voice_join_failed": "Unable to join voice right now.",
+  "ws.voice_state_invalid_transition": "Voice action ignored due to invalid state.",
+  "ws.voice_negotiation_invalid_state": "Voice signaling is out of sync. Rejoin voice.",
+  "ws.voice_negotiation_failed": "Voice negotiation failed. Please rejoin.",
+  "ws.voice_negotiation_timeout": "Voice setup timed out. Please rejoin.",
+  "ws.signaling_rate_limited": "Voice signaling is busy. Please wait a moment.",
   "ws.rate_limited": "Sending messages too fast.",
 
   // API errors
@@ -47,6 +53,12 @@ export const ERROR_CODES = {
   // WebSocket
   VOICE_COOLDOWN: "ws.voice_cooldown",
   VOICE_JOIN_COOLDOWN: "ws.voice_join_cooldown",
+  VOICE_JOIN_FAILED: "ws.voice_join_failed",
+  VOICE_STATE_INVALID_TRANSITION: "ws.voice_state_invalid_transition",
+  VOICE_NEGOTIATION_INVALID_STATE: "ws.voice_negotiation_invalid_state",
+  VOICE_NEGOTIATION_FAILED: "ws.voice_negotiation_failed",
+  VOICE_NEGOTIATION_TIMEOUT: "ws.voice_negotiation_timeout",
+  SIGNALING_RATE_LIMITED: "ws.signaling_rate_limited",
   MESSAGE_RATE_LIMITED: "ws.rate_limited",
 
   // API

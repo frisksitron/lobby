@@ -59,7 +59,7 @@ func NewServer(
 	)
 	userHandler := NewUserHandler(userRepo, hub)
 	serverInfoHandler := NewServerInfoHandler(cfg.Server.Name)
-	wsHandler := NewWebSocketHandler(hub)
+	wsHandler := NewWebSocketHandler(hub, cfg.Server.WebSocket)
 	messageHandler := NewMessageHandler(messageRepo, userRepo)
 	healthHandler := NewHealthHandler(database)
 
@@ -169,4 +169,3 @@ func slogRequestLogger(next http.Handler) http.Handler {
 		)
 	})
 }
-
