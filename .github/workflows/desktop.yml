@@ -1,0 +1,59 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: src-client-desktop
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src-client-desktop/package-lock.json
+
+      - name: Set version from tag
+        run: npm version ${GITHUB_REF_NAME#v} --no-git-tag-version --allow-same-version
+        shell: bash
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run check
+
+      - name: Build and publish
+        run: npm run build && npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find previous desktop tag
+        id: prev
+        run: |
+          PREV=$(git tag -l 'v*' --sort=-v:refname | grep -v '^server-' | sed -n '2p')
+          echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Update release
+        run: |
+          ARGS=(--title "desktop ${GITHUB_REF_NAME#v}")
+          NOTES_ARGS=(--generate-notes)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES_ARGS+=(--notes-start-tag "$PREV_TAG")
+          fi
+          NOTES=$(gh api repos/{owner}/{repo}/releases/generate-notes -f tag_name="$GITHUB_REF_NAME" ${PREV_TAG:+-f previous_tag_name="$PREV_TAG"} --jq .body)
+          gh release edit "$GITHUB_REF_NAME" "${ARGS[@]}" --notes "$NOTES"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREV_TAG: ${{ steps.prev.outputs.tag }}

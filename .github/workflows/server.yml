@@ -1,4 +1,4 @@
-name: Server CI
+name: Server Release
 
 on:
   push:
@@ -72,7 +72,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Find previous server tag
+        id: prev
+        run: |
+          PREV=$(git tag -l 'server-v*' --sort=-v:refname | sed -n '2p')
+          echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
-        run: gh release create "$GITHUB_REF_NAME" --title "Server ${GITHUB_REF_NAME#server-}" --generate-notes
+        run: |
+          ARGS=(--title "server ${GITHUB_REF_NAME#server-v}" --generate-notes --latest=false)
+          if [ -n "$PREV_TAG" ]; then
+            ARGS+=(--notes-start-tag "$PREV_TAG")
+          fi
+          gh release create "$GITHUB_REF_NAME" "${ARGS[@]}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREV_TAG: ${{ steps.prev.outputs.tag }}
