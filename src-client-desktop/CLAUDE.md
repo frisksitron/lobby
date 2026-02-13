@@ -1,103 +1,62 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Component-level guidance for `src-client-desktop`.
 
-## Project Overview
+## Scope
 
-Lobby is an Electron desktop app (Discord-like communication platform) built with Solid.js, TypeScript, and electron-vite. It supports multi-server connections, real-time messaging via WebSocket, and voice chat via WebRTC with noise suppression.
+Electron desktop client for Lobby (Solid.js + TypeScript + electron-vite).
 
 ## Commands
 
 ```bash
 # Development
-npm run dev                # Start dev server with hot reload
-npm run dev:instance1      # Run instance 1 (Windows PowerShell)
-npm run dev:instance2      # Run instance 2 (Windows PowerShell)
+npm run dev
+npm run dev:instance1
+npm run dev:instance2
 
-# Code quality
-npm run check              # Biome lint + format check
-npm run fix                # Auto-fix with Biome
-npm run typecheck          # TypeScript check (both node and web targets)
-npm run typecheck:node     # Type check main/preload only
-npm run typecheck:web      # Type check renderer only
+# Quality
+npm run fix
+npm run typecheck
 
 # Build
-npm run start              # Preview bundled app
-npm run build              # Typecheck + electron-vite build
-npm run build:unpack       # Unpacked build output
-npm run build:win          # Windows (NSIS installer)
-npm run build:mac          # macOS (DMG)
-npm run build:linux        # Linux (AppImage, snap, deb)
+npm run build
 ```
 
-## Architecture
+## Architecture Map
 
-Three-process Electron architecture:
+- `src/main/` - Electron main process (window lifecycle, secure storage IPC, settings).
+- `src/preload/` - context bridge APIs exposed to renderer.
+- `src/renderer/` - Solid app UI and runtime state.
 
-- **Main process** (`src/main/index.ts`): Window management, IPC handlers, encrypted token storage via `safeStorage`, settings persistence via `electron-store`
-- **Preload** (`src/preload/index.ts`): Context bridge exposing `window.api.storage`, `window.api.settings`, `window.api.servers`, `window.api.theme`, `window.api.screen`, `window.api.updater`
-- **Renderer** (`src/renderer/`): Solid.js UI with reactive stores
+Renderer hot spots:
 
-### Renderer Structure
+- `src/renderer/src/lib/auth/token-manager.ts` - access/refresh token lifecycle.
+- `src/renderer/src/lib/connection/ConnectionService.ts` - connection phases and retry orchestration.
+- `src/renderer/src/lib/ws/manager.ts` - WebSocket handshake, dispatch routing, token re-identify.
+- `src/renderer/src/stores/connection.ts` - app-level session/server state.
+- `src/renderer/src/stores/voice.ts` - voice UI state and WS/RTC integration.
+- `src/renderer/src/lib/webrtc/` - SFU signaling and media pipeline.
 
-- `stores/` — Solid.js signal-based reactive state:
-  - `connection.ts` — Connection state, current user/session, server availability
-  - `servers.ts` — Known servers, add/remove, last active
-  - `users.ts` — User data and presence
-  - `voice.ts` — Voice state (join/leave, mute/deafen/speaking)
-  - `typing.ts` — Typing state
-  - `screen-share.ts` — Screen share state
-  - `status.ts` — Presence/status state
-  - `messages.ts` — Message history and sending
-  - `settings.ts` — User preferences
-  - `theme.ts` — Theme state
-  - `ui.ts` — UI state (modals, toasts)
-  - `auth-flow.ts` — Authentication flow state
-  - `updater.ts` — Auto-update state
-- `lib/` — Business logic libraries:
-  - `api/` — HTTP REST client and auth endpoints
-  - `auth/` — Token refresh management
-  - `connection/` — Connection lifecycle and retry strategy
-  - `errors/` — User-facing error mapping
-  - `ws/` — WebSocket connection manager
-  - `webrtc/` — WebRTC voice, audio processing, noise suppression, VAD, screen share
-  - `themes/` — Theme definitions and runtime application
-  - `sounds/` — Audio playback manager
-  - `constants/` — UI and device constants
-  - `logger/` — Dev-mode logging utility
-  - `reactive.ts` — Reactive helpers
-  - `storage.ts` — Token storage helpers (IPC wrappers)
-- `components/` — UI components organized by feature (Header, MessageFeed, MessageInput, ScreenPicker, Sidebar, StreamViewer, settings, shared)
-- `src/shared/types.ts` — Shared type definitions (User, Server, Message, VoiceState, Theme, etc.)
+## Auth and Connection Invariants
 
-### Data Flow
+- Tokens are stored via main/preload APIs; renderer does not own raw secure storage.
+- `token-manager` schedules proactive refresh and retries transient failures.
+- `ConnectionService` starts token auto-refresh on WS connect and stops it on disconnect/auth-invalid paths.
+- After refresh, `wsManager` re-sends `IDENTIFY` on the live socket (no reconnect).
+- Voice state is server-authoritative; prefer WS-confirmed state over local assumptions.
 
-Components → Stores (reactive signals) → Libraries (api/ws/webrtc) → Remote Server
+## Contract Sync
 
-Tokens are stored encrypted in main process via IPC; renderer never handles raw storage. Servers are persisted in electron-store with per-server token isolation.
+When WebSocket payloads change, update both sides together:
 
-### TypeScript Configuration
+- Server: `../src-server/internal/ws/types.go`
+- Client: `src/renderer/src/lib/ws/types.ts`
 
-Two separate tsconfig targets:
-- `tsconfig.node.json` — Main and preload (Node.js environment)
-- `tsconfig.web.json` — Renderer (browser environment, `jsxImportSource: "solid-js"`)
+## After Editing
 
-Path alias: `@renderer` → `src/renderer/src`
-
-## Code Style (Biome)
-
-- 2-space indent, 100-char line width
-- Double quotes, semicolons as needed, no trailing commas
-- Solid.js domain rules enabled
-- CSS files excluded from Biome (Tailwind CSS v4 with PostCSS)
-- Imports auto-organized by Biome assist
-- No useless comments—code should be self-explanatory
-
-## After Editing Code
-
-Always run these commands after making code changes:
+Run:
 
 ```bash
-npm run fix        # Auto-fix lint and formatting issues
-npm run typecheck  # Verify no type errors
+npm run fix
+npm run typecheck
 ```

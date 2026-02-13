@@ -1,18 +1,32 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Repository-level guidance for working in this codebase.
 
-## Project Overview
+## Scope
 
-Lobby is a self-hosted Discord-like communication platform with a desktop client and server.
+Lobby is a self-hosted Discord-like app with:
 
-**Simplified channel model:** Each server has exactly one text channel and one voice channel. No channel management or selection required.
+- Desktop client: Electron + Solid.js + TypeScript
+- Server: Go + chi + SQLite + WebSocket + WebRTC SFU
 
-## Shell Environment
+Product model note: each server has exactly one text channel and one voice channel.
 
-Windows with Git Bash. Use POSIX-style paths in shell commands (e.g. `/c/` prefix instead of `C:\`).
+## Environment
 
-## Component Documentation
+- Windows with Git Bash.
+- Use POSIX-style shell paths (for example `/c/Users/...`) when running commands.
 
-- [Desktop Client (Electron + Solid.js)](src-client-desktop/CLAUDE.md)
-- [Server (Go)](src-server/CLAUDE.md)
+## Component Docs
+
+- Client guide: `src-client-desktop/CLAUDE.md`
+- Server guide: `src-server/CLAUDE.md`
+
+## Sync Rules
+
+When changes touch auth/session flow, WebSocket contracts, or database schema/query shape:
+
+1. Update the relevant component `CLAUDE.md` file(s).
+2. Keep WebSocket contract types in sync:
+   - `src-server/internal/ws/types.go`
+   - `src-client-desktop/src/renderer/src/lib/ws/types.ts`
+3. If SQL schema/query changes were made, keep migration/query/generated layers aligned in `src-server/internal/db/`.

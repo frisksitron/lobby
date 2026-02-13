@@ -1,109 +1,63 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Component-level guidance for `src-server`.
 
-## Project Overview
+## Scope
 
-Lobby is a real-time voice and text chat server (Discord-like) written in Go 1.24. It provides REST API, WebSocket, and WebRTC (SFU) capabilities. Uses SQLite for storage, chi for routing, and Pion for WebRTC.
+Go server for Lobby (REST + WebSocket + WebRTC SFU) with SQLite persistence.
 
-## Build & Run
+## Commands
 
 ```bash
-# Build
+# Build / run
 go build -o lobby ./cmd/server
-
-# Run (development)
 go run ./cmd/server -config config.dev.yaml
 
-# Cross-compile for Linux (deployment)
-CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o lobby-linux-amd64 ./cmd/server
+# Validation
+go test ./...
+go vet ./...
+
+# Regenerate typed SQL layer after SQL edits
+go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0 generate -f sqlc.yaml
 ```
 
-No test suite or linting configuration exists yet. Standard `go test ./...` and `go vet ./...` apply.
+## Architecture Map
 
-## Architecture
+- `cmd/server/main.go` - startup, config load, DB open, cleanup service, HTTP server lifecycle.
+- `internal/api/` - REST handlers, middleware, router wiring.
+- `internal/ws/` - WS protocol types, hub/client lifecycle, SFU signaling bridge.
+- `internal/sfu/` - WebRTC SFU and screen-share pipeline.
+- `internal/db/` - SQLite open/migrations, query definitions, generated sqlc layer.
 
-```
-cmd/server/main.go          Entry point, config loading, graceful shutdown
-internal/
-  api/                      HTTP handlers & middleware (chi router)
-  auth/                     JWT (HS256) + magic code (passwordless login)
-  config/                   YAML config loading
-  constants/                Shared constants (buffer sizes, limits)
-  db/                       SQLite layer (WAL mode), repositories
-  email/                    SMTP service for magic codes
-  models/                   Data structs (User, Message, MagicCode, RefreshToken)
-  sfu/                      WebRTC Selective Forwarding Unit (Pion)
-  ws/                       WebSocket hub/client, protocol (OpCodes + event types)
-```
+Data layer paths:
 
-### Request Flow
+- Migrations: `internal/db/migrations/*.sql`
+- Query definitions: `internal/db/queries/*.sql`
+- Generated sqlc: `internal/db/sqlc/*.go`
 
-1. HTTP requests route through chi middleware (logging, recovery, security headers, auth)
-2. Auth endpoints issue magic codes via email, verify them, return JWT access + refresh tokens
-3. WebSocket upgrade at `/ws` (token in query string) registers client with the Hub
-4. Hub broadcasts events (presence, messages, typing, voice state) to connected clients
-5. Voice: clients send RTC signaling through WebSocket; SFU manages peer connections and forwards media tracks
+## Data Layer Rules
 
-### Key Patterns
+- Schema source of truth is migrations, not inline SQL in Go.
+- Runtime query API comes from `database.Queries()` (`*sqldb.Queries`).
+- Keep migrations, query files, and generated sqlc output aligned in the same change.
 
-- **Repository pattern** for data access (`UserRepository`, `MessageRepository`, etc.)
-- **Hub/Client pattern** for WebSocket — Hub is the central broadcaster, each Client has a send buffer
-- **OpCode protocol** for WebSocket framing: OpDispatch(0), OpHello(1), OpReady(2), etc.
-- **Event/Command types** for WebSocket payload routing (e.g., `MESSAGE_CREATE`, `VOICE_JOIN`)
-- **Sliding window rate limiter** per-IP on sensitive endpoints
-- **Prefixed IDs** — `usr_`, `msg_` + 12 random bytes hex-encoded
+## Auth and Session Invariants
 
-### WebSocket Protocol
+- Magic codes, registration tokens, and refresh tokens are stored hashed.
+- Refresh tokens are single-use and rotated transactionally.
+- Access JWT `sessionVersion` is enforced in both:
+  - REST auth middleware (`internal/api/middleware.go`)
+  - WS `IDENTIFY` validation (`internal/ws/client.go`)
+- Logout/deactivation flows revoke refresh tokens and bump `sessionVersion`.
 
-Client → Server commands: `IDENTIFY`, `PRESENCE_SET`, `MESSAGE_SEND`, `TYPING`, `VOICE_JOIN`, `VOICE_LEAVE`, `VOICE_STATE_SET`, `RTC_OFFER`, `RTC_ANSWER`, `RTC_ICE_CANDIDATE`, `SCREEN_SHARE_START`, `SCREEN_SHARE_STOP`, `SCREEN_SHARE_SUBSCRIBE`, `SCREEN_SHARE_UNSUBSCRIBE`, `SCREEN_SHARE_READY`
+## WebSocket Contract Rules
 
-Server → Client events: `PRESENCE_UPDATE`, `MESSAGE_CREATE`, `TYPING_START`, `TYPING_STOP`, `USER_UPDATE`, `VOICE_STATE_UPDATE`, `RTC_READY`, `RTC_OFFER`, `RTC_ANSWER`, `RTC_ICE_CANDIDATE`, `VOICE_SPEAKING`, `USER_JOINED`, `USER_LEFT`, `SCREEN_SHARE_UPDATE`, `ERROR`
+- Wire contract source of truth: `internal/ws/types.go`.
+- Client mirror must stay in sync: `../src-client-desktop/src/renderer/src/lib/ws/types.ts`.
+- Handshake flow is `HELLO -> IDENTIFY -> READY`.
+- Re-`IDENTIFY` is allowed for token refresh only when the token resolves to the same user.
 
-### Database
+## Before Finishing
 
-SQLite3 with WAL mode. Tables: `users`, `magic_codes`, `refresh_tokens`, `messages`. Schema is defined inline in `internal/db/db.go` (no migration framework). A background `CleanupService` purges expired codes and tokens.
-
-## Configuration
-
-Config via YAML files (`config.yaml` / `config.dev.yaml`) and/or environment variables. YAML file is optional — if not found, the server starts with env vars + defaults only. Env vars override YAML values.
-
-Key sections: `server`, `database`, `auth`, `email`, `sfu`. Dev config uses mailpit on localhost:1025 for SMTP.
-
-Required environment variables: `LOBBY_JWT_SECRET` (≥32 chars), `LOBBY_SMTP_HOST`, `LOBBY_SMTP_PORT`, `LOBBY_SMTP_FROM` (SMTP is required — passwordless magic code login is the only auth method).
-
-Optional environment variables: `LOBBY_SERVER_NAME`, `LOBBY_SERVER_BASE_URL`, `LOBBY_DATABASE_PATH`, `LOBBY_ACCESS_TOKEN_TTL`, `LOBBY_REFRESH_TOKEN_TTL`, `LOBBY_MAGIC_CODE_TTL`, `LOBBY_SMTP_USERNAME`, `LOBBY_SMTP_PASSWORD`, `LOBBY_SFU_PUBLIC_IP`, `LOBBY_SFU_MIN_PORT`, `LOBBY_SFU_MAX_PORT`, `LOBBY_TURN_ADDR` (host:port), `LOBBY_TURN_SECRET`, `LOBBY_TURN_TTL`.
-
-Duration env vars use Go `time.ParseDuration` format (e.g., `15m`, `24h`, `720h`).
-
-## Logging
-
-Structured JSON logging via `log/slog` to stdout. All log calls use a `"component"` key for filtering (e.g., `sfu`, `hub`, `ws`, `cleanup`, `screenshare`, `email`).
-
-## Health Check
-
-`GET /health` — pings SQLite, returns `{"status":"ok","checks":{"database":"ok"}}` (200) or `{"status":"degraded",...}` (503).
-
-## Deployment
-
-```bash
-# Dev (with mailpit)
-docker compose up --build
-
-# Production build
-docker build -t lobby-server .
-```
-
-The Dockerfile uses multi-stage Alpine build with CGO for SQLite. Data stored in `/data` volume.
-
-Required ports: 8080/TCP (API), 3478/TCP+UDP (TURN), 50000-50100/UDP (RTP)
-
-## Dependencies
-
-- `go-chi/chi/v5` — HTTP router
-- `gorilla/websocket` — WebSocket
-- `pion/webrtc/v4` — WebRTC/SFU
-- `golang-jwt/jwt/v5` — JWT tokens
-- `mattn/go-sqlite3` — SQLite (requires CGO)
-- `google/uuid` — UUIDs
-- `gopkg.in/yaml.v3` — Config parsing
+- Run `go test ./...` and `go vet ./...`.
+- If SQL changed, regenerate sqlc output and include generated files.
