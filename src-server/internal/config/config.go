@@ -36,11 +36,12 @@ type TURNConfig struct {
 }
 
 type ServerConfig struct {
-	Name      string          `yaml:"name"`
-	Host      string          `yaml:"host"`
-	Port      int             `yaml:"port"`
-	BaseURL   string          `yaml:"base_url"`
-	WebSocket WebSocketConfig `yaml:"websocket"`
+	Name              string          `yaml:"name"`
+	Host              string          `yaml:"host"`
+	Port              int             `yaml:"port"`
+	BaseURL           string          `yaml:"base_url"`
+	TrustedProxyCIDRs []string        `yaml:"trusted_proxy_cidrs"`
+	WebSocket         WebSocketConfig `yaml:"websocket"`
 }
 
 type WebSocketConfig struct {
@@ -147,6 +148,7 @@ func (c *Config) applyEnvOverrides() {
 	// Server
 	envString("LOBBY_SERVER_NAME", &c.Server.Name)
 	envString("LOBBY_SERVER_BASE_URL", &c.Server.BaseURL)
+	envStringSlice("LOBBY_TRUSTED_PROXY_CIDRS", &c.Server.TrustedProxyCIDRs)
 	envStringSlice("LOBBY_WS_ALLOWED_ORIGINS", &c.Server.WebSocket.AllowedOrigins)
 	envInt("LOBBY_WS_MAX_UNAUTH_PER_IP", &c.Server.WebSocket.MaxUnauthenticatedPerIP)
 	envInt("LOBBY_WS_MAX_UNAUTH_GLOBAL", &c.Server.WebSocket.MaxUnauthenticatedGlobal)
@@ -227,6 +229,19 @@ func (c *Config) validate() error {
 		}
 		if _, err := url.ParseRequestURI(origin); err != nil {
 			return fmt.Errorf("server.websocket.allowed_origins contains invalid origin %q: %w", origin, err)
+		}
+	}
+
+	for _, cidr := range c.Server.TrustedProxyCIDRs {
+		trimmed := strings.TrimSpace(cidr)
+		if trimmed == "" {
+			continue
+		}
+		if ip := net.ParseIP(trimmed); ip != nil {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(trimmed); err != nil {
+			return fmt.Errorf("server.trusted_proxy_cidrs contains invalid CIDR or IP %q: %w", trimmed, err)
 		}
 	}
 	return nil

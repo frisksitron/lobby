@@ -1,3 +1,8 @@
 {$LOBBY_DOMAIN} {
-	reverse_proxy lobby:8080
+	reverse_proxy lobby:8080 {
+		header_up X-Forwarded-For {http.request.remote.host}
+		header_up X-Real-IP {http.request.remote.host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
 }
