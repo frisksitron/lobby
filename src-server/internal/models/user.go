@@ -3,12 +3,14 @@ package models
 import "time"
 
 type User struct {
-	ID        string     `json:"id"`
-	Username  string     `json:"username"`
-	Email     string     `json:"email,omitempty"`
-	AvatarURL *string    `json:"avatarUrl,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt *time.Time `json:"updatedAt"`
+	ID             string     `json:"id"`
+	Username       string     `json:"username"`
+	Email          string     `json:"email,omitempty"`
+	AvatarURL      *string    `json:"avatarUrl,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      *time.Time `json:"updatedAt"`
+	DeactivatedAt  *time.Time `json:"-"`
+	SessionVersion int        `json:"-"`
 }
 
 func (u *User) GetAvatarURL() string {
@@ -21,10 +23,19 @@ func (u *User) GetAvatarURL() string {
 type MagicCode struct {
 	ID        string
 	Email     string
-	Code      string
+	CodeHash  string
 	ExpiresAt time.Time
 	UsedAt    *time.Time
 	Attempts  int
+	CreatedAt time.Time
+}
+
+type RegistrationToken struct {
+	ID        string
+	Email     string
+	TokenHash string
+	ExpiresAt time.Time
+	UsedAt    *time.Time
 	CreatedAt time.Time
 }
 

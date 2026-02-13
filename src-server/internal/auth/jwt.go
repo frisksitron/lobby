@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -19,7 +20,8 @@ type JWTService struct {
 }
 
 type Claims struct {
-	UserID string `json:"userId"`
+	UserID         string `json:"userId"`
+	SessionVersion int    `json:"sessionVersion"`
 	jwt.RegisteredClaims
 }
 
@@ -40,7 +42,8 @@ func NewJWTService(secret string, accessTTL, refreshTTL time.Duration) *JWTServi
 func (s *JWTService) GenerateTokenPair(user *models.User) (*TokenPair, string, error) {
 	accessExpiry := time.Now().Add(s.accessTokenTTL)
 	accessClaims := Claims{
-		UserID: user.ID,
+		UserID:         user.ID,
+		SessionVersion: user.SessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(accessExpiry),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -93,6 +96,19 @@ func (s *JWTService) RefreshTokenExpiry() time.Time {
 
 func HashRefreshToken(token string) string {
 	return hashToken(token)
+}
+
+func HashRegistrationToken(token string) string {
+	return hashToken(token)
+}
+
+func HashMagicCode(email, code string) string {
+	normalized := strings.ToLower(strings.TrimSpace(email)) + ":" + strings.TrimSpace(code)
+	return hashToken(normalized)
+}
+
+func GenerateOpaqueToken(length int) (string, error) {
+	return generateSecureToken(length)
 }
 
 func hashToken(token string) string {

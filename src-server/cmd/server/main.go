@@ -42,10 +42,11 @@ func main() {
 
 	userRepo := db.NewUserRepository(database)
 	magicCodeRepo := db.NewMagicCodeRepository(database)
+	registrationTokenRepo := db.NewRegistrationTokenRepository(database)
 	refreshTokenRepo := db.NewRefreshTokenRepository(database)
 	messageRepo := db.NewMessageRepository(database)
 
-	cleanupService := db.NewCleanupService(magicCodeRepo, refreshTokenRepo)
+	cleanupService := db.NewCleanupService(magicCodeRepo, registrationTokenRepo, refreshTokenRepo)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go cleanupService.Start(cleanupCtx)
 
@@ -58,7 +59,16 @@ func main() {
 	)
 	slog.Info("email configured", "host", cfg.Email.SMTP.Host, "port", cfg.Email.SMTP.Port)
 
-	server, err := api.NewServer(cfg, database, emailService, userRepo, magicCodeRepo, refreshTokenRepo, messageRepo)
+	server, err := api.NewServer(
+		cfg,
+		database,
+		emailService,
+		userRepo,
+		magicCodeRepo,
+		registrationTokenRepo,
+		refreshTokenRepo,
+		messageRepo,
+	)
 	if err != nil {
 		slog.Error("failed to create server", "error", err)
 		os.Exit(1)

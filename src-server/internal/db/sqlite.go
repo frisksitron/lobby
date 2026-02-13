@@ -41,24 +41,34 @@ func (db *DB) migrate() error {
 	migrations := []string{
 		`CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
-        username TEXT UNIQUE,
+        username TEXT NOT NULL UNIQUE CHECK(length(trim(username)) > 0),
         email TEXT NOT NULL UNIQUE,
         avatar_url TEXT,
+        session_version INTEGER NOT NULL DEFAULT 1,
         created_at DATETIME NOT NULL,
-        updated_at DATETIME NOT NULL
+        updated_at DATETIME NOT NULL,
+        deactivated_at DATETIME
     )`,
-		`DROP TABLE IF EXISTS magic_link_tokens`,
 		`CREATE TABLE IF NOT EXISTS magic_codes (
         id TEXT PRIMARY KEY,
         email TEXT NOT NULL,
-        code TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
         expires_at DATETIME NOT NULL,
         used_at DATETIME,
         attempts INTEGER NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL
     )`,
 		`CREATE INDEX IF NOT EXISTS idx_magic_codes_email ON magic_codes(email)`,
-		`CREATE INDEX IF NOT EXISTS idx_magic_codes_email_code ON magic_codes(email, code)`,
+		`CREATE INDEX IF NOT EXISTS idx_magic_codes_expiry ON magic_codes(expires_at)`,
+		`CREATE TABLE IF NOT EXISTS registration_tokens (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at DATETIME NOT NULL,
+        used_at DATETIME,
+        created_at DATETIME NOT NULL
+    )`,
+		`CREATE INDEX IF NOT EXISTS idx_registration_tokens_expiry ON registration_tokens(expires_at)`,
 		`CREATE TABLE IF NOT EXISTS refresh_tokens (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id),

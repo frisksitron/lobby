@@ -11,16 +11,22 @@ const (
 )
 
 type CleanupService struct {
-	magicCodes    *MagicCodeRepository
-	refreshTokens *RefreshTokenRepository
-	interval      time.Duration
+	magicCodes         *MagicCodeRepository
+	registrationTokens *RegistrationTokenRepository
+	refreshTokens      *RefreshTokenRepository
+	interval           time.Duration
 }
 
-func NewCleanupService(magicCodes *MagicCodeRepository, refreshTokens *RefreshTokenRepository) *CleanupService {
+func NewCleanupService(
+	magicCodes *MagicCodeRepository,
+	registrationTokens *RegistrationTokenRepository,
+	refreshTokens *RefreshTokenRepository,
+) *CleanupService {
 	return &CleanupService{
-		magicCodes:    magicCodes,
-		refreshTokens: refreshTokens,
-		interval:      DefaultCleanupInterval,
+		magicCodes:         magicCodes,
+		registrationTokens: registrationTokens,
+		refreshTokens:      refreshTokens,
+		interval:           DefaultCleanupInterval,
 	}
 }
 
@@ -49,6 +55,13 @@ func (s *CleanupService) runCleanup() {
 		slog.Error("error deleting expired magic codes", "component", "cleanup", "error", err)
 	} else if magicDeleted > 0 {
 		slog.Info("deleted expired magic codes", "component", "cleanup", "count", magicDeleted)
+	}
+
+	registrationDeleted, err := s.registrationTokens.DeleteExpired()
+	if err != nil {
+		slog.Error("error deleting expired registration tokens", "component", "cleanup", "error", err)
+	} else if registrationDeleted > 0 {
+		slog.Info("deleted expired registration tokens", "component", "cleanup", "count", registrationDeleted)
 	}
 
 	refreshDeleted, err := s.refreshTokens.DeleteExpired()

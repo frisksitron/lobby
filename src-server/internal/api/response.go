@@ -3,18 +3,18 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+
+	"lobby/internal/constants"
 )
 
 const (
-	ErrCodeInvalidRequest     = "INVALID_REQUEST"
-	ErrCodeInvalidCredentials = "INVALID_CREDENTIALS"
-	ErrCodeTokenExpired       = "TOKEN_EXPIRED"
-	ErrCodeTokenUsed          = "TOKEN_USED"
-	ErrCodeUnauthorized       = "UNAUTHORIZED"
-	ErrCodeNotFound           = "NOT_FOUND"
-	ErrCodeConflict           = "CONFLICT"
-	ErrCodeInternal           = "INTERNAL_ERROR"
-	ErrCodeRateLimitExceeded  = "RATE_LIMIT_EXCEEDED"
+	ErrCodeAuthFailed     = constants.ErrCodeAuthFailed
+	ErrCodeAuthExpired    = constants.ErrCodeAuthExpired
+	ErrCodeRateLimited    = constants.ErrCodeRateLimited
+	ErrCodeInvalidRequest = constants.ErrCodeInvalidRequest
+	ErrCodeNotFound       = constants.ErrCodeNotFound
+	ErrCodeConflict       = constants.ErrCodeConflict
+	ErrCodeInternal       = constants.ErrCodeInternal
 )
 
 type ErrorResponse struct {
@@ -46,7 +46,7 @@ func badRequest(w http.ResponseWriter, message string) {
 }
 
 func unauthorized(w http.ResponseWriter, message string) {
-	writeError(w, http.StatusUnauthorized, ErrCodeUnauthorized, message)
+	writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, message)
 }
 
 func notFound(w http.ResponseWriter, message string) {

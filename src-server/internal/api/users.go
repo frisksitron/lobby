@@ -13,24 +13,13 @@ import (
 )
 
 type UserHandler struct {
-	users *db.UserRepository
-	hub   *ws.Hub
+	users         *db.UserRepository
+	refreshTokens *db.RefreshTokenRepository
+	hub           *ws.Hub
 }
 
-func NewUserHandler(users *db.UserRepository, hub *ws.Hub) *UserHandler {
-	return &UserHandler{users: users, hub: hub}
-}
-
-// GET /api/v1/users
-func (h *UserHandler) GetAll(w http.ResponseWriter, r *http.Request) {
-	users, err := h.users.FindAll()
-	if err != nil {
-		slog.Error("error finding users", "error", err)
-		internalError(w)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, users)
+func NewUserHandler(users *db.UserRepository, refreshTokens *db.RefreshTokenRepository, hub *ws.Hub) *UserHandler {
+	return &UserHandler{users: users, refreshTokens: refreshTokens, hub: hub}
 }
 
 // GET /api/v1/users/me
@@ -135,4 +124,52 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, user)
+}
+
+// DELETE /api/v1/users/me
+func (h *UserHandler) LeaveMe(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r)
+	if userID == "" {
+		unauthorized(w, "User not found in context")
+		return
+	}
+
+	if _, err := h.users.FindByID(userID); err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			notFound(w, "User not found")
+			return
+		}
+		slog.Error("error finding user", "error", err)
+		internalError(w)
+		return
+	}
+
+	if err := h.users.Deactivate(userID); err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			notFound(w, "User not found")
+			return
+		}
+		slog.Error("error deactivating user", "error", err, "user_id", userID)
+		internalError(w)
+		return
+	}
+
+	if err := h.refreshTokens.RevokeAllForUser(userID); err != nil {
+		slog.Error("error revoking refresh tokens", "error", err, "user_id", userID)
+		internalError(w)
+		return
+	}
+
+	if err := h.users.IncrementSessionVersion(userID); err != nil {
+		slog.Error("error incrementing session version", "error", err, "user_id", userID)
+		internalError(w)
+		return
+	}
+
+	h.hub.BroadcastDispatch(ws.EventUserLeft, ws.UserLeftPayload{UserID: userID})
+	if client := h.hub.GetClient(userID); client != nil {
+		client.Close()
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Left server successfully"})
 }

@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
 	"lobby/internal/auth"
+	"lobby/internal/db"
 )
 
 type contextKey string
@@ -14,10 +16,11 @@ const userIDKey contextKey = "userID"
 
 type AuthMiddleware struct {
 	jwtService *auth.JWTService
+	users      *db.UserRepository
 }
 
-func NewAuthMiddleware(jwtService *auth.JWTService) *AuthMiddleware {
-	return &AuthMiddleware{jwtService: jwtService}
+func NewAuthMiddleware(jwtService *auth.JWTService, users *db.UserRepository) *AuthMiddleware {
+	return &AuthMiddleware{jwtService: jwtService, users: users}
 }
 
 func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
@@ -38,6 +41,21 @@ func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 		claims, err := m.jwtService.ValidateAccessToken(token)
 		if err != nil {
 			unauthorized(w, "Invalid or expired token")
+			return
+		}
+
+		user, err := m.users.FindByID(claims.UserID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				unauthorized(w, "User not found")
+				return
+			}
+			internalError(w)
+			return
+		}
+
+		if claims.SessionVersion != user.SessionVersion {
+			unauthorized(w, "Session invalidated")
 			return
 		}
 

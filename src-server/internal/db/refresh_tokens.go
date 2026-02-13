@@ -63,11 +63,68 @@ func (r *RefreshTokenRepository) FindByHash(tokenHash string) (*models.RefreshTo
 }
 
 func (r *RefreshTokenRepository) Revoke(id string) error {
-	result, err := r.db.Exec(`UPDATE refresh_tokens SET revoked_at = ? WHERE id = ?`, time.Now().UTC(), id)
+	result, err := r.db.Exec(
+		`UPDATE refresh_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
+		time.Now().UTC(),
+		id,
+	)
 	if err != nil {
 		return fmt.Errorf("revoking token: %w", err)
 	}
 	return checkRowsAffected(result)
+}
+
+func (r *RefreshTokenRepository) Rotate(consumedTokenID string, userID string, newTokenHash string, newExpiresAt time.Time) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("starting refresh token rotation transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC()
+	result, err := tx.Exec(
+		`UPDATE refresh_tokens
+         SET revoked_at = ?
+       WHERE id = ?
+         AND revoked_at IS NULL
+         AND expires_at > ?`,
+		now,
+		consumedTokenID,
+		now,
+	)
+	if err != nil {
+		return fmt.Errorf("revoking token during rotation: %w", err)
+	}
+
+	if err := checkRowsAffected(result); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("checking refresh token rotation rows affected: %w", err)
+	}
+
+	newID, err := generateID("rft")
+	if err != nil {
+		return fmt.Errorf("generating rotated refresh token ID: %w", err)
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)`,
+		newID,
+		userID,
+		newTokenHash,
+		newExpiresAt.UTC(),
+		now,
+	)
+	if err != nil {
+		return fmt.Errorf("creating rotated refresh token: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing refresh token rotation: %w", err)
+	}
+
+	return nil
 }
 
 func (r *RefreshTokenRepository) RevokeAllForUser(userID string) error {

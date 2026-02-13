@@ -17,7 +17,7 @@ func NewMagicCodeRepository(db *DB) *MagicCodeRepository {
 	return &MagicCodeRepository{db: db}
 }
 
-func (r *MagicCodeRepository) Create(email, code string, expiresAt time.Time) (*models.MagicCode, error) {
+func (r *MagicCodeRepository) Create(email, codeHash string, expiresAt time.Time) (*models.MagicCode, error) {
 	id, err := generateID("mc")
 	if err != nil {
 		return nil, fmt.Errorf("generating magic code ID: %w", err)
@@ -25,8 +25,8 @@ func (r *MagicCodeRepository) Create(email, code string, expiresAt time.Time) (*
 	now := time.Now().UTC()
 
 	_, err = r.db.Exec(
-		`INSERT INTO magic_codes (id, email, code, expires_at, attempts, created_at) VALUES (?, ?, ?, ?, 0, ?)`,
-		id, email, code, expiresAt.UTC(), now,
+		`INSERT INTO magic_codes (id, email, code_hash, expires_at, attempts, created_at) VALUES (?, ?, ?, ?, 0, ?)`,
+		id, email, codeHash, expiresAt.UTC(), now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating magic code: %w", err)
@@ -35,7 +35,7 @@ func (r *MagicCodeRepository) Create(email, code string, expiresAt time.Time) (*
 	return &models.MagicCode{
 		ID:        id,
 		Email:     email,
-		Code:      code,
+		CodeHash:  codeHash,
 		ExpiresAt: expiresAt,
 		Attempts:  0,
 		CreatedAt: now,
@@ -47,9 +47,9 @@ func (r *MagicCodeRepository) FindLatestByEmail(email string) (*models.MagicCode
 	var usedAt sql.NullTime
 
 	err := r.db.QueryRow(
-		`SELECT id, email, code, expires_at, used_at, attempts, created_at FROM magic_codes WHERE email = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+		`SELECT id, email, code_hash, expires_at, used_at, attempts, created_at FROM magic_codes WHERE email = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1`,
 		email,
-	).Scan(&mc.ID, &mc.Email, &mc.Code, &mc.ExpiresAt, &usedAt, &mc.Attempts, &mc.CreatedAt)
+	).Scan(&mc.ID, &mc.Email, &mc.CodeHash, &mc.ExpiresAt, &usedAt, &mc.Attempts, &mc.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

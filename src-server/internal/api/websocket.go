@@ -17,6 +17,7 @@ import (
 
 type WebSocketHandler struct {
 	hub             *ws.Hub
+	ipResolver      *ClientIPResolver
 	upgrader        websocket.Upgrader
 	allowedOrigins  []string
 	identifyTimeout time.Duration
@@ -95,9 +96,14 @@ func (b *preAuthBudget) releaseByIPLocked(ip string) {
 	}
 }
 
-func NewWebSocketHandler(hub *ws.Hub, cfg config.WebSocketConfig) *WebSocketHandler {
+func NewWebSocketHandler(hub *ws.Hub, cfg config.WebSocketConfig, ipResolver *ClientIPResolver) *WebSocketHandler {
+	if ipResolver == nil {
+		ipResolver, _ = NewClientIPResolver(nil)
+	}
+
 	h := &WebSocketHandler{
 		hub:             hub,
+		ipResolver:      ipResolver,
 		allowedOrigins:  append([]string{}, cfg.AllowedOrigins...),
 		identifyTimeout: cfg.UnauthenticatedTimeout,
 		preAuthBudget: newPreAuthBudget(
@@ -115,7 +121,7 @@ func NewWebSocketHandler(hub *ws.Hub, cfg config.WebSocketConfig) *WebSocketHand
 }
 
 func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
-	clientIP := getClientIP(r.RemoteAddr)
+	clientIP := h.ipResolver.Resolve(r)
 	if !h.preAuthBudget.reserve(clientIP) {
 		slog.Warn("rejecting websocket upgrade due to pre-auth budget", "component", "ws", "ip", clientIP)
 		http.Error(w, "Too many pre-auth websocket connections", http.StatusTooManyRequests)
@@ -198,18 +204,4 @@ func isLoopbackOrigin(origin string) bool {
 
 	ip := net.ParseIP(hostname)
 	return ip != nil && ip.IsLoopback()
-}
-
-func getClientIP(remoteAddr string) string {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		if remoteAddr == "" {
-			return "unknown"
-		}
-		return remoteAddr
-	}
-	if host == "" {
-		return "unknown"
-	}
-	return host
 }

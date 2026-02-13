@@ -28,6 +28,7 @@ func NewServer(
 	emailService *email.SMTPService,
 	userRepo *db.UserRepository,
 	magicCodeRepo *db.MagicCodeRepository,
+	registrationTokenRepo *db.RegistrationTokenRepository,
 	refreshTokenRepo *db.RefreshTokenRepository,
 	messageRepo *db.MessageRepository,
 ) (*Server, error) {
@@ -51,24 +52,30 @@ func NewServer(
 	authHandler := NewAuthHandler(
 		userRepo,
 		magicCodeRepo,
+		registrationTokenRepo,
 		refreshTokenRepo,
 		jwtService,
 		magicService,
 		emailService,
 		cfg.Auth.MagicCodeTTL,
+		hub,
 	)
-	userHandler := NewUserHandler(userRepo, hub)
+	userHandler := NewUserHandler(userRepo, refreshTokenRepo, hub)
 	serverInfoHandler := NewServerInfoHandler(cfg.Server.Name)
-	wsHandler := NewWebSocketHandler(hub, cfg.Server.WebSocket)
 	messageHandler := NewMessageHandler(messageRepo, userRepo)
 	healthHandler := NewHealthHandler(database)
 
-	authMiddleware := NewAuthMiddleware(jwtService)
+	authMiddleware := NewAuthMiddleware(jwtService, userRepo)
+	ipResolver, err := NewClientIPResolver(cfg.Server.TrustedProxyCIDRs)
+	if err != nil {
+		return nil, fmt.Errorf("initializing client IP resolver: %w", err)
+	}
+
+	wsHandler := NewWebSocketHandler(hub, cfg.Server.WebSocket, ipResolver)
 
 	r := chi.NewRouter()
 	r.Use(slogRequestLogger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.RealIP)
 	r.Use(corsMiddleware)
 	r.Use(securityHeadersMiddleware)
 
@@ -79,9 +86,10 @@ func NewServer(
 		r.Get("/server/info", serverInfoHandler.GetInfo)
 
 		r.Route("/auth", func(r chi.Router) {
-			r.With(RateLimitMiddleware(magicCodeLimiter)).Post("/login/magic-code", authHandler.RequestMagicCode)
-			r.With(RateLimitMiddleware(verifyLimiter)).Post("/login/magic-code/verify", authHandler.VerifyMagicCode)
-			r.With(RateLimitMiddleware(refreshLimiter)).Post("/refresh", authHandler.Refresh)
+			r.With(RateLimitMiddleware(magicCodeLimiter, ipResolver)).Post("/login/magic-code", authHandler.RequestMagicCode)
+			r.With(RateLimitMiddleware(verifyLimiter, ipResolver)).Post("/login/magic-code/verify", authHandler.VerifyMagicCode)
+			r.With(RateLimitMiddleware(verifyLimiter, ipResolver)).Post("/register", authHandler.Register)
+			r.With(RateLimitMiddleware(refreshLimiter, ipResolver)).Post("/refresh", authHandler.Refresh)
 
 			r.Group(func(r chi.Router) {
 				r.Use(authMiddleware.RequireAuth)
@@ -91,9 +99,9 @@ func NewServer(
 
 		r.Route("/users", func(r chi.Router) {
 			r.Use(authMiddleware.RequireAuth)
-			r.Get("/", userHandler.GetAll)
 			r.Get("/me", userHandler.GetMe)
 			r.Patch("/me", userHandler.UpdateMe)
+			r.Delete("/me", userHandler.LeaveMe)
 		})
 
 		r.Route("/messages", func(r chi.Router) {
@@ -103,7 +111,7 @@ func NewServer(
 	})
 
 	wsUpgradeLimiter := NewRateLimiter(10, time.Minute)
-	r.With(RateLimitMiddleware(wsUpgradeLimiter)).Get("/ws", wsHandler.ServeWS)
+	r.With(RateLimitMiddleware(wsUpgradeLimiter, ipResolver)).Get("/ws", wsHandler.ServeWS)
 
 	return &Server{
 		router: r,

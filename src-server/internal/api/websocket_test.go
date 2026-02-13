@@ -31,12 +31,17 @@ func TestOriginMatchesAllowed(t *testing.T) {
 }
 
 func TestCheckOriginAllowsLoopbackAndConfiguredOrigins(t *testing.T) {
+	resolver, err := NewClientIPResolver(nil)
+	if err != nil {
+		t.Fatalf("NewClientIPResolver error: %v", err)
+	}
+
 	handler := NewWebSocketHandler(nil, config.WebSocketConfig{
 		AllowedOrigins:           []string{"https://example.com", "app://*"},
 		MaxUnauthenticatedPerIP:  10,
 		MaxUnauthenticatedGlobal: 100,
 		UnauthenticatedTimeout:   10 * time.Second,
-	})
+	}, resolver)
 
 	loopbackReq := httptest.NewRequest("GET", "http://localhost/ws", nil)
 	loopbackReq.Header.Set("Origin", "http://127.0.0.1:5173")
