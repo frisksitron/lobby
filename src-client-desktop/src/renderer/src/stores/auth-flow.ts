@@ -14,14 +14,13 @@ import { createSignal } from "solid-js"
 import type { User } from "../../../shared/types"
 import {
   getServerInfo as apiGetServerInfo,
+  registerAccount as apiRegisterAccount,
   requestMagicCode as apiRequestMagicCode,
-  updateMe as apiUpdateMe,
   verifyMagicCode as apiVerifyMagicCode
 } from "../lib/api/auth"
-import type { AuthResponse, ServerInfo } from "../lib/api/types"
+import type { ServerInfo } from "../lib/api/types"
 import type { AuthFlowStep } from "../lib/auth/types"
 import { createLogger } from "../lib/logger"
-import { clearTokens, setTokens } from "../lib/storage"
 
 const log = createLogger("AuthFlow")
 
@@ -42,8 +41,8 @@ const [serverInfo, setServerInfo] = createSignal<ServerInfo | null>(null)
 // Email auth state
 const [pendingEmail, setPendingEmail] = createSignal("")
 
-// Pending auth response for registration
-const [pendingAuthResponse, setPendingAuthResponse] = createSignal<AuthResponse | null>(null)
+// Pending registration token for account creation
+const [pendingRegistrationToken, setPendingRegistrationToken] = createSignal<string | null>(null)
 
 // UI state
 const [authError, setAuthError] = createSignal<string | null>(null)
@@ -57,7 +56,7 @@ function resetAuthFlow(): void {
   setServerUrl("")
   setServerInfo(null)
   setPendingEmail("")
-  setPendingAuthResponse(null)
+  setPendingRegistrationToken(null)
   setAuthError(null)
   setIsLoading(false)
 }
@@ -174,28 +173,33 @@ async function verifyMagicCode(code: string): Promise<AuthResult | null> {
 
   try {
     const result = await apiVerifyMagicCode(serverUrl(), pendingEmail(), code)
-    setPendingEmail(result.user.email || "")
 
-    if (result.isNewUser) {
-      // New user - need to complete registration
-      setPendingAuthResponse(result)
+    if (result.next === "register") {
+      setPendingRegistrationToken(result.registrationToken)
       setStep("register")
       return null
-    } else {
-      // Existing user - return auth result for caller to handle
-      const authResult: AuthResult = {
-        user: result.user,
-        serverUrl: serverUrl(),
-        serverInfo: serverInfo(),
-        tokens: {
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          expiresAt: result.expiresAt
-        }
-      }
-      resetAuthFlow()
-      return authResult
     }
+
+    const session = result.session
+    if (!session?.user || !session.accessToken || !session.refreshToken || !session.expiresAt) {
+      setAuthError("Invalid authentication response")
+      return null
+    }
+
+    setPendingEmail(session.user.email || "")
+
+    const authResult: AuthResult = {
+      user: session.user,
+      serverUrl: serverUrl(),
+      serverInfo: serverInfo(),
+      tokens: {
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        expiresAt: session.expiresAt
+      }
+    }
+    resetAuthFlow()
+    return authResult
   } catch (error) {
     log.error("Failed to verify magic code:", error)
     setAuthError("Invalid or expired code")
@@ -213,38 +217,24 @@ async function completeRegistration(username: string): Promise<AuthResult | null
   setIsLoading(true)
   setAuthError(null)
 
-  const authResponse = pendingAuthResponse()
-  if (!authResponse) {
+  const registrationToken = pendingRegistrationToken()
+  if (!registrationToken) {
     setAuthError("Registration session expired")
     setIsLoading(false)
     return null
   }
 
-  const serverId = new URL(serverUrl()).host
-
   try {
-    // First save the tokens so we can make authenticated requests
-    await setTokens(
-      serverId,
-      authResponse.accessToken,
-      authResponse.refreshToken,
-      authResponse.expiresAt
-    )
-
-    // Update user with the chosen username
-    const updatedUser = await apiUpdateMe(serverUrl(), authResponse.accessToken, {
-      username,
-      displayName: username
-    })
+    const response = await apiRegisterAccount(serverUrl(), registrationToken, username)
 
     const authResult: AuthResult = {
-      user: updatedUser,
+      user: response.user,
       serverUrl: serverUrl(),
       serverInfo: serverInfo(),
       tokens: {
-        accessToken: authResponse.accessToken,
-        refreshToken: authResponse.refreshToken,
-        expiresAt: authResponse.expiresAt
+        accessToken: response.accessToken,
+        refreshToken: response.refreshToken,
+        expiresAt: response.expiresAt
       }
     }
 
@@ -252,8 +242,6 @@ async function completeRegistration(username: string): Promise<AuthResult | null
     return authResult
   } catch (error) {
     log.error("Failed to complete registration:", error)
-    // Clear tokens for this server on failure
-    await clearTokens(serverId)
     setAuthError("Failed to create account")
     return null
   } finally {
@@ -278,6 +266,7 @@ function goBack(hasServer?: boolean): void {
       break
     case "register":
       setStep("email-input")
+      setPendingRegistrationToken(null)
       break
   }
   setAuthError(null)

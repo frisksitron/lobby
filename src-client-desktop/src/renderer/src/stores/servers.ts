@@ -2,6 +2,7 @@ import { createSignal } from "solid-js"
 import type { Server } from "../../../shared/types"
 import { connectionService } from "../lib/connection"
 import { createLogger } from "../lib/logger"
+import { clearTokens } from "../lib/storage"
 
 const log = createLogger("Servers")
 
@@ -58,6 +59,7 @@ export async function leaveServer(serverId: string): Promise<string | null> {
   const currentServers = servers()
   const newServers = currentServers.filter((s) => s.id !== serverId)
   setServers(newServers)
+  await clearTokens(serverId)
   await window.api.servers.remove(serverId)
 
   if (connectionService.getServer()?.id === serverId) {

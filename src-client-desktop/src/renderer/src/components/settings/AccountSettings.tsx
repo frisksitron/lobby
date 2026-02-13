@@ -1,6 +1,6 @@
 import { useNavigate } from "@solidjs/router"
 import { type Component, createEffect, createSignal } from "solid-js"
-import { updateMe } from "../../lib/api/auth"
+import { leaveServer as apiLeaveServer, updateMe } from "../../lib/api/auth"
 import { getValidToken } from "../../lib/auth/token-manager"
 import { createLogger } from "../../lib/logger"
 import { useConnection } from "../../stores/connection"
@@ -20,11 +20,13 @@ const AccountSettings: Component = () => {
   const [username, setUsername] = createSignal("")
   const [isSaving, setIsSaving] = createSignal(false)
   const [saveError, setSaveError] = createSignal<string | null>(null)
+  const [leaveError, setLeaveError] = createSignal<string | null>(null)
 
   createEffect(() => {
     const user = currentUser()
     setUsername(user?.username || "")
     setSaveError(null)
+    setLeaveError(null)
   })
 
   const handleSaveUsername = async () => {
@@ -53,8 +55,7 @@ const AccountSettings: Component = () => {
       }
 
       const updatedUser = await updateMe(serverUrl, token, {
-        username: newUsername,
-        displayName: newUsername
+        username: newUsername
       })
 
       updateCurrentUser(updatedUser)
@@ -70,19 +71,38 @@ const AccountSettings: Component = () => {
     const server = activeServer()
     if (!server) return
 
+    setLeaveError(null)
+
     showConfirmDialog({
       title: "Leave Server",
       message: `Are you sure you want to leave "${server.name}"? You'll lose access to all messages and voice channels in this server.`,
       confirmLabel: "Leave Server",
       variant: "danger",
       onConfirm: async () => {
-        const nextServerId = await leaveServer(activeServerId())
-        closeConfirmDialog()
-        if (nextServerId) {
-          navigate(`/server/${nextServerId}`)
-        } else {
-          await disconnect()
-          navigate("/auth")
+        try {
+          const serverUrl = getServerUrl()
+          const token = await getValidToken()
+
+          if (!serverUrl || !token) {
+            setLeaveError("Not authenticated. Sign in and try again.")
+            closeConfirmDialog()
+            return
+          }
+
+          await apiLeaveServer(serverUrl, token)
+
+          const nextServerId = await leaveServer(activeServerId())
+          closeConfirmDialog()
+          if (nextServerId) {
+            navigate(`/server/${nextServerId}`)
+          } else {
+            await disconnect()
+            navigate("/auth")
+          }
+        } catch (error) {
+          log.error("Failed to leave server:", error)
+          setLeaveError("Failed to leave server")
+          closeConfirmDialog()
         }
       }
     })
@@ -117,6 +137,7 @@ const AccountSettings: Component = () => {
         <Button variant="danger" onClick={handleLeaveServer}>
           Leave Server
         </Button>
+        {leaveError() && <p class="text-red-500 text-sm mt-2">{leaveError()}</p>}
         <p class="text-text-secondary text-sm mt-2">
           Remove yourself from this server, you can rejoin later.
         </p>

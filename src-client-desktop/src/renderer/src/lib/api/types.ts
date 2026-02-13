@@ -6,7 +6,19 @@ export interface AuthResponse {
   accessToken: string
   refreshToken: string
   expiresAt: string
-  isNewUser: boolean
+}
+
+export type VerifyMagicCodeResponse = VerifyMagicCodeRegister | VerifyMagicCodeSession
+
+export interface VerifyMagicCodeRegister {
+  next: "register"
+  registrationToken: string
+  registrationExpiresAt: string
+}
+
+export interface VerifyMagicCodeSession {
+  next: "session"
+  session: AuthResponse
 }
 
 // Token refresh response
@@ -19,9 +31,6 @@ export interface RefreshResponse {
 // Server info from /server/info
 export interface ServerInfo {
   name: string
-  auth: {
-    methods: string[]
-  }
 }
 
 // API error response
@@ -46,7 +55,6 @@ export interface VerifyMagicCodeRequest {
 // Update user payload
 export interface UpdateUserRequest {
   username?: string
-  displayName?: string
 }
 
 // Custom error class for API errors

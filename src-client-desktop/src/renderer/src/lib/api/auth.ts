@@ -1,6 +1,13 @@
 import type { User } from "../../../../shared/types"
 import { apiRequest, normalizeUrl, publicRequest } from "./client"
-import type { AuthResponse, RefreshResponse, ServerInfo, UpdateUserRequest } from "./types"
+import type {
+  APIError,
+  AuthResponse,
+  RefreshResponse,
+  ServerInfo,
+  UpdateUserRequest,
+  VerifyMagicCodeResponse
+} from "./types"
 import { ApiError } from "./types"
 
 // Get server info (public endpoint)
@@ -21,10 +28,24 @@ export async function verifyMagicCode(
   serverUrl: string,
   email: string,
   code: string
-): Promise<AuthResponse> {
-  return apiRequest<AuthResponse>(serverUrl, "/api/v1/auth/login/magic-code/verify", {
+): Promise<VerifyMagicCodeResponse> {
+  return apiRequest<VerifyMagicCodeResponse>(serverUrl, "/api/v1/auth/login/magic-code/verify", {
     method: "POST",
     body: { email, code }
+  })
+}
+
+export async function registerAccount(
+  serverUrl: string,
+  registrationToken: string,
+  username: string
+): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>(serverUrl, "/api/v1/auth/register", {
+    method: "POST",
+    body: {
+      registrationToken,
+      username
+    }
   })
 }
 
@@ -46,7 +67,14 @@ export async function refreshTokens(
   })
 
   if (!response.ok) {
-    throw new ApiError("Token refresh failed", "REFRESH_FAILED", response.status)
+    let errorData: APIError | null = null
+    try {
+      errorData = await response.json()
+    } catch {}
+
+    const code = errorData?.error?.code ?? "UNKNOWN_ERROR"
+    const message = errorData?.error?.message ?? "Token refresh failed"
+    throw new ApiError(message, code, response.status)
   }
 
   return response.json()
@@ -76,15 +104,6 @@ export async function getMe(serverUrl: string, accessToken: string): Promise<Use
   })
 }
 
-// Get all users on the server
-export async function getUsers(serverUrl: string, accessToken: string): Promise<User[]> {
-  return apiRequest<User[]>(serverUrl, "/api/v1/users", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  })
-}
-
 // Update current user info
 export async function updateMe(
   serverUrl: string,
@@ -97,5 +116,15 @@ export async function updateMe(
       Authorization: `Bearer ${accessToken}`
     },
     body: data
+  })
+}
+
+// Leave server (deactivate account)
+export async function leaveServer(serverUrl: string, accessToken: string): Promise<void> {
+  await apiRequest<{ message: string }>(serverUrl, "/api/v1/users/me", {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
   })
 }
