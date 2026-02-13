@@ -6,7 +6,5 @@ lobby
 lobby-linux-amd64
 config.yaml
 config.dev.yaml
-docker-compose*.yml
-Caddyfile
+deploy/
 .env
-.env.example

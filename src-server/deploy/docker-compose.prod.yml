@@ -18,7 +18,7 @@ services:
         ipv4_address: 172.30.0.10
 
   lobby:
-    image: ghcr.io/frisksitron/lobby/server:latest
+    image: ghcr.io/frisksitron/lobby/server:${LOBBY_IMAGE_TAG:?LOBBY_IMAGE_TAG is required}
     restart: unless-stopped
     ports:
       - "${LOBBY_SFU_MIN_PORT:-50000}-${LOBBY_SFU_MAX_PORT:-50100}:${LOBBY_SFU_MIN_PORT:-50000}-${LOBBY_SFU_MAX_PORT:-50100}/udp"

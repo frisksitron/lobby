@@ -1,6 +1,16 @@
 # Lobby
 Lobby is a self-hosted Discord alternative.
 
+## Deployment Requirements
+Quick install on Ubuntu 24.04:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/frisksitron/lobby/main/src-server/deploy/install.sh -o /tmp/lobby-install.sh
+sudo bash /tmp/lobby-install.sh
+```
+
+Deployment requirements `src-server/deploy/DEPLOY.md`.
+
 ## Development
 
 ### Prerequisites
