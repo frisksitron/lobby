@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
@@ -13,6 +14,8 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 
 	"lobby/internal/constants"
+	"lobby/internal/db"
+	sqldb "lobby/internal/db/sqlc"
 	"lobby/internal/models"
 	"lobby/internal/sfu"
 )
@@ -91,6 +94,7 @@ type Client struct {
 	sendCloseOnce sync.Once
 	authExpiryMu  sync.Mutex
 	authExpiry    *time.Timer
+	authExpiryVer uint64
 
 	callbackMu              sync.Mutex
 	identifiedCallbacks     []func(*Client)
@@ -201,6 +205,7 @@ func (c *Client) Close() {
 func (c *Client) stopAuthExpiryTimer() {
 	c.authExpiryMu.Lock()
 	defer c.authExpiryMu.Unlock()
+	c.authExpiryVer++
 
 	if c.authExpiry != nil {
 		c.authExpiry.Stop()
@@ -209,23 +214,37 @@ func (c *Client) stopAuthExpiryTimer() {
 }
 
 func (c *Client) scheduleAuthExpiry(expiresAt time.Time) {
-	delay := time.Until(expiresAt)
-	if delay <= 0 {
-		go c.handleAuthExpired()
-		return
-	}
-
 	c.authExpiryMu.Lock()
 	defer c.authExpiryMu.Unlock()
 
+	c.authExpiryVer++
+	version := c.authExpiryVer
+
 	if c.authExpiry != nil {
 		c.authExpiry.Stop()
+		c.authExpiry = nil
 	}
 
-	c.authExpiry = time.AfterFunc(delay, c.handleAuthExpired)
+	delay := time.Until(expiresAt)
+	if delay <= 0 {
+		go c.handleAuthExpired(version)
+		return
+	}
+
+	c.authExpiry = time.AfterFunc(delay, func() {
+		c.handleAuthExpired(version)
+	})
 }
 
-func (c *Client) handleAuthExpired() {
+func (c *Client) handleAuthExpired(version uint64) {
+	c.authExpiryMu.Lock()
+	if version != c.authExpiryVer {
+		c.authExpiryMu.Unlock()
+		return
+	}
+	c.authExpiry = nil
+	c.authExpiryMu.Unlock()
+
 	if !c.IsIdentified() || c.IsClosed() || c.user == nil {
 		return
 	}
@@ -487,7 +506,8 @@ func (c *Client) rejectSignalingRateLimit(command string, retryAfter int64) {
 }
 
 func (c *Client) handleIdentify(msg *WSMessage) {
-	if c.State() != ClientStateConnected {
+	state := c.State()
+	if state != ClientStateConnected && state != ClientStateIdentified {
 		return
 	}
 
@@ -531,18 +551,33 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		return
 	}
 
-	user, err := c.hub.userRepo.FindByID(claims.UserID)
+	userRow, err := c.hub.queries.GetActiveUserByID(context.Background(), claims.UserID)
 	if err != nil {
 		slog.Warn("IDENTIFY user not found", "component", "ws", "error", err)
 		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "User not found"}}
 		c.Close()
 		return
 	}
+	user := modelUserFromDBUser(userRow)
 
 	if claims.SessionVersion != user.SessionVersion {
 		slog.Warn("IDENTIFY token session version mismatch", "component", "ws", "user_id", user.ID)
 		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "Session invalidated"}}
 		c.Close()
+		return
+	}
+
+	if state == ClientStateIdentified {
+		if c.user == nil || c.user.ID != user.ID {
+			slog.Warn("IDENTIFY attempted user switch", "component", "ws", "current_user_id", c.getUserID(), "token_user_id", user.ID)
+			c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "Session invalidated"}}
+			c.Close()
+			return
+		}
+
+		c.SetUser(user)
+		c.scheduleAuthExpiry(expiresAt)
+		slog.Info("client re-identified", "component", "ws", "user_id", c.user.ID, "session_id", c.sessionID)
 		return
 	}
 
@@ -650,21 +685,32 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 		return
 	}
 
-	message, err := c.hub.MessageRepo().Create(c.user.ID, content)
+	messageID, err := db.GenerateID("msg")
+	if err != nil {
+		slog.Error("error generating message id", "component", "ws", "error", err)
+		return
+	}
+	createdAt := time.Now().UTC()
+	err = c.hub.queries.CreateMessage(context.Background(), sqldb.CreateMessageParams{
+		ID:        messageID,
+		AuthorID:  c.user.ID,
+		Content:   content,
+		CreatedAt: createdAt,
+	})
 	if err != nil {
 		slog.Error("error creating message", "component", "ws", "error", err)
 		return
 	}
 
 	c.hub.BroadcastDispatch(EventMessageCreate, MessageCreatePayload{
-		ID: message.ID,
+		ID: messageID,
 		Author: &MessageAuthor{
 			ID:       c.user.ID,
 			Username: c.user.Username,
 			Avatar:   c.user.GetAvatarURL(),
 		},
-		Content:   message.Content,
-		CreatedAt: message.CreatedAt.UTC().Format(time.RFC3339Nano),
+		Content:   content,
+		CreatedAt: createdAt.Format(time.RFC3339Nano),
 		Nonce:     nonce,
 	})
 }

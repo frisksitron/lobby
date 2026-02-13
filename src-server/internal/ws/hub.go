@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,7 +13,7 @@ import (
 	"lobby/internal/auth"
 	"lobby/internal/config"
 	"lobby/internal/constants"
-	"lobby/internal/db"
+	sqldb "lobby/internal/db/sqlc"
 	"lobby/internal/sfu"
 )
 
@@ -73,15 +75,14 @@ type Hub struct {
 	unregister    chan *Client
 	shutdown      chan struct{}
 	jwtService    *auth.JWTService
-	userRepo      *db.UserRepository
-	messageRepo   *db.MessageRepository
+	queries       *sqldb.Queries
 	sfu           *sfu.SFU
 	sfuCfg        *config.SFUConfig
 	screenShare   *sfu.ScreenShareManager
 	mu            sync.RWMutex
 }
 
-func NewHub(jwtService *auth.JWTService, userRepo *db.UserRepository, messageRepo *db.MessageRepository, sfuCfg *config.SFUConfig) (*Hub, error) {
+func NewHub(jwtService *auth.JWTService, queries *sqldb.Queries, sfuCfg *config.SFUConfig) (*Hub, error) {
 	h := &Hub{
 		clients:       make(map[*Client]bool),
 		userClients:   make(map[string]*Client),
@@ -91,8 +92,7 @@ func NewHub(jwtService *auth.JWTService, userRepo *db.UserRepository, messageRep
 		unregister:    make(chan *Client),
 		shutdown:      make(chan struct{}),
 		jwtService:    jwtService,
-		userRepo:      userRepo,
-		messageRepo:   messageRepo,
+		queries:       queries,
 		sfuCfg:        sfuCfg,
 	}
 
@@ -210,9 +210,9 @@ func (h *Hub) Run() {
 			}
 
 			if client.user != nil && wasActiveClient {
-				if _, err := h.userRepo.FindByID(client.user.ID); err == nil {
+				if _, err := h.queries.GetActiveUserByID(context.Background(), client.user.ID); err == nil {
 					h.broadcastPresenceUpdate(client.user.ID, "offline", nil)
-				} else if !errors.Is(err, db.ErrNotFound) {
+				} else if !errors.Is(err, sql.ErrNoRows) {
 					slog.Error("error loading user on disconnect", "component", "hub", "error", err, "user_id", client.user.ID)
 				}
 			}
@@ -324,7 +324,7 @@ func (h *Hub) SendToUser(userID string, msg *WSMessage) {
 }
 
 func (h *Hub) GetMemberSnapshot() []MemberState {
-	users, err := h.userRepo.FindAll()
+	users, err := h.queries.ListActiveUsers(context.Background())
 	if err != nil {
 		slog.Error("error building member snapshot", "component", "hub", "error", err)
 		return []MemberState{}
@@ -356,10 +356,15 @@ func (h *Hub) GetMemberSnapshot() []MemberState {
 			streaming = h.screenShare.IsStreaming(user.ID)
 		}
 
+		avatar := ""
+		if user.AvatarUrl != nil {
+			avatar = *user.AvatarUrl
+		}
+
 		members = append(members, MemberState{
 			ID:        user.ID,
 			Username:  user.Username,
-			Avatar:    user.GetAvatarURL(),
+			Avatar:    avatar,
 			Status:    status,
 			InVoice:   inVoice,
 			Muted:     muted,
@@ -407,14 +412,6 @@ func (h *Hub) broadcastPresenceUpdate(userID string, status string, except *Clie
 	h.mu.RUnlock()
 
 	slog.Debug("presence changed", "component", "hub", "user_id", userID, "status", status)
-}
-
-func (h *Hub) MessageRepo() *db.MessageRepository {
-	return h.messageRepo
-}
-
-func (h *Hub) UserRepo() *db.UserRepository {
-	return h.userRepo
 }
 
 func (h *Hub) BeginVoiceJoin(userID string, muted, deafened bool) error {

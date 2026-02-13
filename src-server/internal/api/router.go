@@ -26,12 +26,9 @@ func NewServer(
 	cfg *config.Config,
 	database *db.DB,
 	emailService *email.SMTPService,
-	userRepo *db.UserRepository,
-	magicCodeRepo *db.MagicCodeRepository,
-	registrationTokenRepo *db.RegistrationTokenRepository,
-	refreshTokenRepo *db.RefreshTokenRepository,
-	messageRepo *db.MessageRepository,
 ) (*Server, error) {
+	queries := database.Queries()
+
 	magicCodeLimiter := NewRateLimiter(5, time.Minute)
 	verifyLimiter := NewRateLimiter(5, time.Minute)
 	refreshLimiter := NewRateLimiter(30, time.Minute)
@@ -43,29 +40,27 @@ func NewServer(
 	)
 	magicService := auth.NewMagicCodeService(cfg.Auth.MagicCodeTTL)
 
-	hub, err := ws.NewHub(jwtService, userRepo, messageRepo, &cfg.SFU)
+	hub, err := ws.NewHub(jwtService, queries, &cfg.SFU)
 	if err != nil {
 		return nil, fmt.Errorf("initializing hub: %w", err)
 	}
 	go hub.Run()
 
 	authHandler := NewAuthHandler(
-		userRepo,
-		magicCodeRepo,
-		registrationTokenRepo,
-		refreshTokenRepo,
+		database,
+		queries,
 		jwtService,
 		magicService,
 		emailService,
 		cfg.Auth.MagicCodeTTL,
 		hub,
 	)
-	userHandler := NewUserHandler(userRepo, refreshTokenRepo, hub)
+	userHandler := NewUserHandler(queries, hub)
 	serverInfoHandler := NewServerInfoHandler(cfg.Server.Name)
-	messageHandler := NewMessageHandler(messageRepo, userRepo)
+	messageHandler := NewMessageHandler(queries)
 	healthHandler := NewHealthHandler(database)
 
-	authMiddleware := NewAuthMiddleware(jwtService, userRepo)
+	authMiddleware := NewAuthMiddleware(jwtService, queries)
 	ipResolver, err := NewClientIPResolver(cfg.Server.TrustedProxyCIDRs)
 	if err != nil {
 		return nil, fmt.Errorf("initializing client IP resolver: %w", err)

@@ -40,13 +40,7 @@ func main() {
 	defer database.Close()
 	slog.Info("database opened", "path", cfg.Database.Path)
 
-	userRepo := db.NewUserRepository(database)
-	magicCodeRepo := db.NewMagicCodeRepository(database)
-	registrationTokenRepo := db.NewRegistrationTokenRepository(database)
-	refreshTokenRepo := db.NewRefreshTokenRepository(database)
-	messageRepo := db.NewMessageRepository(database)
-
-	cleanupService := db.NewCleanupService(magicCodeRepo, registrationTokenRepo, refreshTokenRepo)
+	cleanupService := db.NewCleanupService(database.Queries())
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go cleanupService.Start(cleanupCtx)
 
@@ -63,11 +57,6 @@ func main() {
 		cfg,
 		database,
 		emailService,
-		userRepo,
-		magicCodeRepo,
-		registrationTokenRepo,
-		refreshTokenRepo,
-		messageRepo,
 	)
 	if err != nil {
 		slog.Error("failed to create server", "error", err)

@@ -8,7 +8,7 @@ type User struct {
 	Email          string     `json:"email,omitempty"`
 	AvatarURL      *string    `json:"avatarUrl,omitempty"`
 	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      *time.Time `json:"updatedAt"`
+	UpdatedAt      *time.Time `json:"updatedAt,omitempty"`
 	DeactivatedAt  *time.Time `json:"-"`
 	SessionVersion int        `json:"-"`
 }

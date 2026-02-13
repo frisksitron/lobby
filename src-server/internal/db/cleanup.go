@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	sqldb "lobby/internal/db/sqlc"
 )
 
 const (
@@ -11,29 +13,21 @@ const (
 )
 
 type CleanupService struct {
-	magicCodes         *MagicCodeRepository
-	registrationTokens *RegistrationTokenRepository
-	refreshTokens      *RefreshTokenRepository
-	interval           time.Duration
+	queries  *sqldb.Queries
+	interval time.Duration
 }
 
-func NewCleanupService(
-	magicCodes *MagicCodeRepository,
-	registrationTokens *RegistrationTokenRepository,
-	refreshTokens *RefreshTokenRepository,
-) *CleanupService {
+func NewCleanupService(queries *sqldb.Queries) *CleanupService {
 	return &CleanupService{
-		magicCodes:         magicCodes,
-		registrationTokens: registrationTokens,
-		refreshTokens:      refreshTokens,
-		interval:           DefaultCleanupInterval,
+		queries:  queries,
+		interval: DefaultCleanupInterval,
 	}
 }
 
 func (s *CleanupService) Start(ctx context.Context) {
 	slog.Info("starting token cleanup service", "component", "cleanup", "interval", s.interval)
 
-	s.runCleanup()
+	s.runCleanup(ctx)
 
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
@@ -44,27 +38,29 @@ func (s *CleanupService) Start(ctx context.Context) {
 			slog.Info("stopping token cleanup service", "component", "cleanup")
 			return
 		case <-ticker.C:
-			s.runCleanup()
+			s.runCleanup(ctx)
 		}
 	}
 }
 
-func (s *CleanupService) runCleanup() {
-	magicDeleted, err := s.magicCodes.DeleteExpired()
+func (s *CleanupService) runCleanup(ctx context.Context) {
+	expiresBefore := time.Now().UTC()
+
+	magicDeleted, err := s.queries.DeleteExpiredMagicCodes(ctx, expiresBefore)
 	if err != nil {
 		slog.Error("error deleting expired magic codes", "component", "cleanup", "error", err)
 	} else if magicDeleted > 0 {
 		slog.Info("deleted expired magic codes", "component", "cleanup", "count", magicDeleted)
 	}
 
-	registrationDeleted, err := s.registrationTokens.DeleteExpired()
+	registrationDeleted, err := s.queries.DeleteExpiredRegistrationTokens(ctx, expiresBefore)
 	if err != nil {
 		slog.Error("error deleting expired registration tokens", "component", "cleanup", "error", err)
 	} else if registrationDeleted > 0 {
 		slog.Info("deleted expired registration tokens", "component", "cleanup", "count", registrationDeleted)
 	}
 
-	refreshDeleted, err := s.refreshTokens.DeleteExpired()
+	refreshDeleted, err := s.queries.DeleteExpiredRefreshTokens(ctx, expiresBefore)
 	if err != nil {
 		slog.Error("error deleting expired refresh tokens", "component", "cleanup", "error", err)
 	} else if refreshDeleted > 0 {

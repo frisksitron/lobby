@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
 
 	"lobby/internal/auth"
-	"lobby/internal/db"
+	sqldb "lobby/internal/db/sqlc"
 )
 
 type contextKey string
@@ -16,11 +17,11 @@ const userIDKey contextKey = "userID"
 
 type AuthMiddleware struct {
 	jwtService *auth.JWTService
-	users      *db.UserRepository
+	queries    *sqldb.Queries
 }
 
-func NewAuthMiddleware(jwtService *auth.JWTService, users *db.UserRepository) *AuthMiddleware {
-	return &AuthMiddleware{jwtService: jwtService, users: users}
+func NewAuthMiddleware(jwtService *auth.JWTService, queries *sqldb.Queries) *AuthMiddleware {
+	return &AuthMiddleware{jwtService: jwtService, queries: queries}
 }
 
 func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
@@ -44,15 +45,17 @@ func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		user, err := m.users.FindByID(claims.UserID)
+		row, err := m.queries.GetActiveUserByID(r.Context(), claims.UserID)
 		if err != nil {
-			if errors.Is(err, db.ErrNotFound) {
+			if errors.Is(err, sql.ErrNoRows) {
 				unauthorized(w, "User not found")
 				return
 			}
 			internalError(w)
 			return
 		}
+
+		user := modelUserFromDBUser(row)
 
 		if claims.SessionVersion != user.SessionVersion {
 			unauthorized(w, "Session invalidated")

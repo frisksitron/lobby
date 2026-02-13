@@ -6,18 +6,17 @@ import (
 	"strconv"
 
 	"lobby/internal/constants"
-	"lobby/internal/db"
+	sqldb "lobby/internal/db/sqlc"
+	"lobby/internal/models"
 )
 
 type MessageHandler struct {
-	messageRepo *db.MessageRepository
-	userRepo    *db.UserRepository
+	queries *sqldb.Queries
 }
 
-func NewMessageHandler(messageRepo *db.MessageRepository, userRepo *db.UserRepository) *MessageHandler {
+func NewMessageHandler(queries *sqldb.Queries) *MessageHandler {
 	return &MessageHandler{
-		messageRepo: messageRepo,
-		userRepo:    userRepo,
+		queries: queries,
 	}
 }
 
@@ -32,10 +31,49 @@ func (h *MessageHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	messages, err := h.messageRepo.GetHistory(beforeStr, limit)
-	if err != nil {
-		internalError(w)
-		return
+	messages := make([]*models.Message, 0, limit)
+
+	if beforeStr != "" {
+		rows, err := h.queries.ListMessageHistoryBefore(r.Context(), sqldb.ListMessageHistoryBeforeParams{
+			BeforeID:  beforeStr,
+			LimitRows: int64(limit),
+		})
+		if err != nil {
+			internalError(w)
+			return
+		}
+
+		messages = make([]*models.Message, 0, len(rows))
+		for _, row := range rows {
+			messages = append(messages, &models.Message{
+				ID:              row.ID,
+				AuthorID:        row.AuthorID,
+				AuthorName:      row.AuthorName,
+				AuthorAvatarURL: row.AuthorAvatarUrl,
+				Content:         row.Content,
+				CreatedAt:       row.CreatedAt,
+				EditedAt:        row.EditedAt,
+			})
+		}
+	} else {
+		rows, err := h.queries.ListMessageHistory(r.Context(), int64(limit))
+		if err != nil {
+			internalError(w)
+			return
+		}
+
+		messages = make([]*models.Message, 0, len(rows))
+		for _, row := range rows {
+			messages = append(messages, &models.Message{
+				ID:              row.ID,
+				AuthorID:        row.AuthorID,
+				AuthorName:      row.AuthorName,
+				AuthorAvatarURL: row.AuthorAvatarUrl,
+				Content:         row.Content,
+				CreatedAt:       row.CreatedAt,
+				EditedAt:        row.EditedAt,
+			})
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

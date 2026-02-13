@@ -1,8 +1,11 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
+	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -10,28 +13,25 @@ import (
 
 	"lobby/internal/auth"
 	"lobby/internal/db"
+	sqldb "lobby/internal/db/sqlc"
 	"lobby/internal/email"
 	"lobby/internal/models"
 	"lobby/internal/ws"
 )
 
 type AuthHandler struct {
-	users              *db.UserRepository
-	magicCodes         *db.MagicCodeRepository
-	registrationTokens *db.RegistrationTokenRepository
-	refreshTokens      *db.RefreshTokenRepository
-	jwtService         *auth.JWTService
-	magicService       *auth.MagicCodeService
-	emailService       *email.SMTPService
-	magicCodeTTL       time.Duration
-	hub                *ws.Hub
+	database     *db.DB
+	queries      *sqldb.Queries
+	jwtService   *auth.JWTService
+	magicService *auth.MagicCodeService
+	emailService *email.SMTPService
+	magicCodeTTL time.Duration
+	hub          *ws.Hub
 }
 
 func NewAuthHandler(
-	users *db.UserRepository,
-	magicCodes *db.MagicCodeRepository,
-	registrationTokens *db.RegistrationTokenRepository,
-	refreshTokens *db.RefreshTokenRepository,
+	database *db.DB,
+	queries *sqldb.Queries,
 	jwtService *auth.JWTService,
 	magicService *auth.MagicCodeService,
 	emailService *email.SMTPService,
@@ -39,15 +39,13 @@ func NewAuthHandler(
 	hub *ws.Hub,
 ) *AuthHandler {
 	return &AuthHandler{
-		users:              users,
-		magicCodes:         magicCodes,
-		registrationTokens: registrationTokens,
-		refreshTokens:      refreshTokens,
-		jwtService:         jwtService,
-		magicService:       magicService,
-		emailService:       emailService,
-		magicCodeTTL:       magicCodeTTL,
-		hub:                hub,
+		database:     database,
+		queries:      queries,
+		jwtService:   jwtService,
+		magicService: magicService,
+		emailService: emailService,
+		magicCodeTTL: magicCodeTTL,
+		hub:          hub,
 	}
 }
 
@@ -83,10 +81,22 @@ func (h *AuthHandler) RequestMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store hashed code
 	expiresAt := h.magicService.ExpiresAt()
 	codeHash := auth.HashMagicCode(req.Email, code)
-	_, err = h.magicCodes.Create(req.Email, codeHash, expiresAt)
+	magicCodeID, err := db.GenerateID("mc")
+	if err != nil {
+		slog.Error("error generating magic code id", "error", err)
+		internalError(w)
+		return
+	}
+
+	err = h.queries.CreateMagicCode(r.Context(), sqldb.CreateMagicCodeParams{
+		ID:        magicCodeID,
+		Email:     req.Email,
+		CodeHash:  codeHash,
+		ExpiresAt: expiresAt.UTC(),
+		CreatedAt: time.Now().UTC(),
+	})
 	if err != nil {
 		slog.Error("error storing magic code", "error", err)
 		internalError(w)
@@ -151,8 +161,8 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	magicCode, err := h.magicCodes.FindLatestByEmail(req.Email)
-	if errors.Is(err, db.ErrNotFound) {
+	magicCode, err := h.queries.GetLatestUnusedMagicCodeByEmail(r.Context(), req.Email)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "Invalid code")
 		return
 	}
@@ -162,13 +172,20 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newAttempts, err := h.magicCodes.IncrementAttempts(magicCode.ID, auth.MaxAttempts)
+	newAttempts, err := h.queries.IncrementMagicCodeAttempts(r.Context(), sqldb.IncrementMagicCodeAttemptsParams{
+		ID:          magicCode.ID,
+		MaxAttempts: int64(auth.MaxAttempts),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "Too many attempts")
+		return
+	}
 	if err != nil {
 		slog.Error("error incrementing attempts", "error", err)
 		internalError(w)
 		return
 	}
-	if newAttempts < 0 {
+	if newAttempts > int64(auth.MaxAttempts) {
 		writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "Too many attempts")
 		return
 	}
@@ -184,19 +201,23 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wasMarked, err := h.magicCodes.MarkUsedIfUnused(magicCode.ID)
+	usedAt := time.Now().UTC()
+	rowsAffected, err := h.queries.MarkMagicCodeUsedIfUnused(r.Context(), sqldb.MarkMagicCodeUsedIfUnusedParams{
+		UsedAt: &usedAt,
+		ID:     magicCode.ID,
+	})
 	if err != nil {
 		slog.Error("error marking code used", "error", err)
 		internalError(w)
 		return
 	}
-	if !wasMarked {
+	if rowsAffected == 0 {
 		writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "Code has already been used")
 		return
 	}
 
-	user, err := h.users.FindByEmail(magicCode.Email)
-	if errors.Is(err, db.ErrNotFound) {
+	userRow, err := h.queries.GetUserByEmail(r.Context(), magicCode.Email)
+	if errors.Is(err, sql.ErrNoRows) {
 		registrationToken, tokenErr := auth.GenerateOpaqueToken(32)
 		if tokenErr != nil {
 			slog.Error("error generating registration token", "error", tokenErr)
@@ -206,7 +227,20 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 
 		registrationExpiresAt := time.Now().Add(h.magicCodeTTL)
 		registrationTokenHash := auth.HashRegistrationToken(registrationToken)
-		_, tokenErr = h.registrationTokens.Create(magicCode.Email, registrationTokenHash, registrationExpiresAt)
+		registrationTokenID, tokenErr := db.GenerateID("rgt")
+		if tokenErr != nil {
+			slog.Error("error generating registration token id", "error", tokenErr)
+			internalError(w)
+			return
+		}
+
+		tokenErr = h.queries.CreateRegistrationToken(r.Context(), sqldb.CreateRegistrationTokenParams{
+			ID:        registrationTokenID,
+			Email:     magicCode.Email,
+			TokenHash: registrationTokenHash,
+			ExpiresAt: registrationExpiresAt.UTC(),
+			CreatedAt: time.Now().UTC(),
+		})
 		if tokenErr != nil {
 			slog.Error("error storing registration token", "error", tokenErr)
 			internalError(w)
@@ -227,40 +261,62 @@ func (h *AuthHandler) VerifyMagicCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := modelUserFromDBUser(userRow)
 	wasReactivated := false
 	if user.DeactivatedAt != nil {
-		if err := h.users.Reactivate(user.ID); err != nil {
+		updatedAt := time.Now().UTC()
+		rowsAffected, err = h.queries.ReactivateUser(r.Context(), sqldb.ReactivateUserParams{
+			UpdatedAt: &updatedAt,
+			ID:        user.ID,
+		})
+		if err != nil {
 			slog.Error("error reactivating user", "error", err, "user_id", user.ID)
 			internalError(w)
 			return
 		}
+		if rowsAffected == 0 {
+			slog.Error("reactivating user affected no rows", "user_id", user.ID)
+			internalError(w)
+			return
+		}
 
-		user, err = h.users.FindByID(user.ID)
+		userRow, err = h.queries.GetActiveUserByID(r.Context(), user.ID)
 		if err != nil {
 			slog.Error("error loading reactivated user", "error", err, "user_id", user.ID)
 			internalError(w)
 			return
 		}
-
+		user = modelUserFromDBUser(userRow)
 		wasReactivated = true
 	}
 
 	if wasReactivated {
-		if err := h.users.IncrementSessionVersion(user.ID); err != nil {
+		updatedAt := time.Now().UTC()
+		rowsAffected, err = h.queries.IncrementUserSessionVersion(r.Context(), sqldb.IncrementUserSessionVersionParams{
+			UpdatedAt: &updatedAt,
+			ID:        user.ID,
+		})
+		if err != nil {
 			slog.Error("error incrementing session version for reactivated user", "error", err, "user_id", user.ID)
 			internalError(w)
 			return
 		}
+		if rowsAffected == 0 {
+			slog.Error("incrementing session version affected no rows", "user_id", user.ID)
+			internalError(w)
+			return
+		}
 
-		user, err = h.users.FindByID(user.ID)
+		userRow, err = h.queries.GetActiveUserByID(r.Context(), user.ID)
 		if err != nil {
 			slog.Error("error loading reactivated user after session increment", "error", err, "user_id", user.ID)
 			internalError(w)
 			return
 		}
+		user = modelUserFromDBUser(userRow)
 	}
 
-	authResponse, err := h.generateAuthResponse(user)
+	authResponse, err := h.generateAuthResponse(r.Context(), user)
 	if err != nil {
 		slog.Error("error issuing auth tokens", "error", err, "user_id", user.ID)
 		internalError(w)
@@ -293,9 +349,13 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now().UTC()
 	registrationTokenHash := auth.HashRegistrationToken(req.RegistrationToken)
-	registrationToken, err := h.registrationTokens.FindValid(registrationTokenHash)
-	if errors.Is(err, db.ErrNotFound) {
+	registrationToken, err := h.queries.GetValidRegistrationToken(r.Context(), sqldb.GetValidRegistrationTokenParams{
+		TokenHash: registrationTokenHash,
+		Now:       now,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "Invalid registration token")
 		return
 	}
@@ -311,19 +371,24 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	available, err := h.users.IsUsernameAvailable(username)
+	count, err := h.queries.CountUsersByUsername(r.Context(), username)
 	if err != nil {
 		slog.Error("error checking username availability", "error", err)
 		internalError(w)
 		return
 	}
-	if !available {
+	if count > 0 {
 		conflict(w, "Username already taken")
 		return
 	}
 
-	if _, err := h.registrationTokens.ConsumeValid(registrationTokenHash); err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+	now = time.Now().UTC()
+	if _, err := h.queries.ConsumeValidRegistrationToken(r.Context(), sqldb.ConsumeValidRegistrationTokenParams{
+		UsedAt:    &now,
+		TokenHash: registrationTokenHash,
+		Now:       now,
+	}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "Invalid registration token")
 			return
 		}
@@ -332,18 +397,40 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.Create(email, username)
-	if errors.Is(err, db.ErrDuplicate) {
-		conflict(w, "Account already registered")
+	userID, err := db.GenerateID("usr")
+	if err != nil {
+		slog.Error("error generating user id", "error", err)
+		internalError(w)
 		return
 	}
+
+	createdAt := time.Now().UTC()
+	err = h.queries.CreateUser(r.Context(), sqldb.CreateUserParams{
+		ID:        userID,
+		Username:  username,
+		Email:     email,
+		CreatedAt: createdAt,
+	})
 	if err != nil {
+		if db.IsUniqueConstraintError(err) {
+			conflict(w, "Account already registered")
+			return
+		}
 		slog.Error("error creating user", "error", err)
 		internalError(w)
 		return
 	}
 
-	authResponse, err := h.generateAuthResponse(user)
+	user := &models.User{
+		ID:             userID,
+		Username:       username,
+		Email:          email,
+		CreatedAt:      createdAt,
+		UpdatedAt:      nil,
+		SessionVersion: 1,
+	}
+
+	authResponse, err := h.generateAuthResponse(r.Context(), user)
 	if err != nil {
 		slog.Error("error issuing auth tokens", "error", err, "user_id", user.ID)
 		internalError(w)
@@ -367,8 +454,8 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenHash := auth.HashRefreshToken(req.RefreshToken)
-	refreshToken, err := h.refreshTokens.FindByHash(tokenHash)
-	if errors.Is(err, db.ErrNotFound) {
+	refreshToken, err := h.queries.GetRefreshTokenByHash(r.Context(), tokenHash)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "Invalid refresh token")
 		return
 	}
@@ -388,8 +475,8 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.FindByID(refreshToken.UserID)
-	if errors.Is(err, db.ErrNotFound) {
+	userRow, err := h.queries.GetActiveUserByID(r.Context(), refreshToken.UserID)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "User not found")
 		return
 	}
@@ -398,6 +485,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		internalError(w)
 		return
 	}
+	user := modelUserFromDBUser(userRow)
 
 	tokenPair, newRefreshHash, err := h.jwtService.GenerateTokenPair(user)
 	if err != nil {
@@ -406,9 +494,8 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Atomically consume old token and issue new token.
-	if err := h.refreshTokens.Rotate(refreshToken.ID, user.ID, newRefreshHash, h.jwtService.RefreshTokenExpiry()); err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+	if err := h.rotateRefreshToken(r.Context(), refreshToken.ID, user.ID, newRefreshHash, h.jwtService.RefreshTokenExpiry()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusUnauthorized, ErrCodeAuthFailed, "Refresh token has already been used")
 			return
 		}
@@ -432,14 +519,28 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.refreshTokens.RevokeAllForUser(userID); err != nil {
+	revokedAt := time.Now().UTC()
+	if err := h.queries.RevokeAllRefreshTokensForUser(r.Context(), sqldb.RevokeAllRefreshTokensForUserParams{
+		RevokedAt: &revokedAt,
+		UserID:    userID,
+	}); err != nil {
 		slog.Error("error revoking refresh tokens", "error", err)
 		internalError(w)
 		return
 	}
 
-	if err := h.users.IncrementSessionVersion(userID); err != nil {
+	updatedAt := time.Now().UTC()
+	rowsAffected, err := h.queries.IncrementUserSessionVersion(r.Context(), sqldb.IncrementUserSessionVersionParams{
+		UpdatedAt: &updatedAt,
+		ID:        userID,
+	})
+	if err != nil {
 		slog.Error("error incrementing session version on logout", "error", err, "user_id", userID)
+		internalError(w)
+		return
+	}
+	if rowsAffected == 0 {
+		slog.Error("incrementing session version on logout affected no rows", "user_id", userID)
 		internalError(w)
 		return
 	}
@@ -451,13 +552,25 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out successfully"})
 }
 
-func (h *AuthHandler) generateAuthResponse(user *models.User) (*AuthResponse, error) {
+func (h *AuthHandler) generateAuthResponse(ctx context.Context, user *models.User) (*AuthResponse, error) {
 	tokenPair, refreshHash, err := h.jwtService.GenerateTokenPair(user)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = h.refreshTokens.Create(user.ID, refreshHash, h.jwtService.RefreshTokenExpiry())
+	refreshTokenID, err := db.GenerateID("rft")
+	if err != nil {
+		return nil, fmt.Errorf("generating refresh token ID: %w", err)
+	}
+
+	refreshExpiry := h.jwtService.RefreshTokenExpiry()
+	err = h.queries.CreateRefreshToken(ctx, sqldb.CreateRefreshTokenParams{
+		ID:        refreshTokenID,
+		UserID:    user.ID,
+		TokenHash: refreshHash,
+		ExpiresAt: refreshExpiry.UTC(),
+		CreatedAt: time.Now().UTC(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -468,6 +581,56 @@ func (h *AuthHandler) generateAuthResponse(user *models.User) (*AuthResponse, er
 		RefreshToken: tokenPair.RefreshToken,
 		ExpiresAt:    tokenPair.ExpiresAt.UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func (h *AuthHandler) rotateRefreshToken(
+	ctx context.Context,
+	consumedTokenID string,
+	userID string,
+	newTokenHash string,
+	newExpiresAt time.Time,
+) error {
+	tx, err := h.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("starting refresh token rotation transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := h.queries.WithTx(tx)
+	now := time.Now().UTC()
+	rowsAffected, err := qtx.RevokeRefreshTokenForRotation(ctx, sqldb.RevokeRefreshTokenForRotationParams{
+		RevokedAt: &now,
+		ID:        consumedTokenID,
+		Now:       now,
+	})
+	if err != nil {
+		return fmt.Errorf("revoking token during rotation: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	newID, err := db.GenerateID("rft")
+	if err != nil {
+		return fmt.Errorf("generating rotated refresh token ID: %w", err)
+	}
+
+	err = qtx.CreateRefreshToken(ctx, sqldb.CreateRefreshTokenParams{
+		ID:        newID,
+		UserID:    userID,
+		TokenHash: newTokenHash,
+		ExpiresAt: newExpiresAt.UTC(),
+		CreatedAt: now,
+	})
+	if err != nil {
+		return fmt.Errorf("creating rotated refresh token: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing refresh token rotation: %w", err)
+	}
+
+	return nil
 }
 
 func (h *AuthHandler) broadcastUserJoined(user *models.User) {

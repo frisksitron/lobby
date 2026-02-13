@@ -1,25 +1,27 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"lobby/internal/db"
+	sqldb "lobby/internal/db/sqlc"
 	"lobby/internal/ws"
 )
 
 type UserHandler struct {
-	users         *db.UserRepository
-	refreshTokens *db.RefreshTokenRepository
-	hub           *ws.Hub
+	queries *sqldb.Queries
+	hub     *ws.Hub
 }
 
-func NewUserHandler(users *db.UserRepository, refreshTokens *db.RefreshTokenRepository, hub *ws.Hub) *UserHandler {
-	return &UserHandler{users: users, refreshTokens: refreshTokens, hub: hub}
+func NewUserHandler(queries *sqldb.Queries, hub *ws.Hub) *UserHandler {
+	return &UserHandler{queries: queries, hub: hub}
 }
 
 // GET /api/v1/users/me
@@ -30,8 +32,8 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.FindByID(userID)
-	if errors.Is(err, db.ErrNotFound) {
+	row, err := h.queries.GetActiveUserByID(r.Context(), userID)
+	if errors.Is(err, sql.ErrNoRows) {
 		notFound(w, "User not found")
 		return
 	}
@@ -41,6 +43,7 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := modelUserFromDBUser(row)
 	writeJSON(w, http.StatusOK, user)
 }
 
@@ -72,23 +75,25 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		available, err := h.users.IsUsernameAvailable(username)
+		count, err := h.queries.CountUsersByUsername(r.Context(), username)
 		if err != nil {
 			slog.Error("error checking username availability", "error", err)
 			internalError(w)
 			return
 		}
-		if !available {
+		if count > 0 {
 			conflict(w, "Username already taken")
 			return
 		}
 
-		if err := h.users.UpdateUsername(userID, username); err != nil {
-			if errors.Is(err, db.ErrNotFound) {
-				notFound(w, "User not found")
-				return
-			}
-			if errors.Is(err, db.ErrDuplicate) {
+		now := time.Now().UTC()
+		rowsAffected, err := h.queries.UpdateUsername(r.Context(), sqldb.UpdateUsernameParams{
+			Username:  username,
+			UpdatedAt: &now,
+			ID:        userID,
+		})
+		if err != nil {
+			if db.IsUniqueConstraintError(err) {
 				conflict(w, "Username already taken")
 				return
 			}
@@ -96,12 +101,16 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 			internalError(w)
 			return
 		}
+		if rowsAffected == 0 {
+			notFound(w, "User not found")
+			return
+		}
 		updated = true
 	}
 
 	// Return updated user
-	user, err := h.users.FindByID(userID)
-	if errors.Is(err, db.ErrNotFound) {
+	row, err := h.queries.GetActiveUserByID(r.Context(), userID)
+	if errors.Is(err, sql.ErrNoRows) {
 		notFound(w, "User not found")
 		return
 	}
@@ -110,6 +119,7 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		internalError(w)
 		return
 	}
+	user := modelUserFromDBUser(row)
 
 	if updated {
 		avatar := ""
@@ -134,8 +144,8 @@ func (h *UserHandler) LeaveMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.users.FindByID(userID); err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+	if _, err := h.queries.GetActiveUserByID(r.Context(), userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			notFound(w, "User not found")
 			return
 		}
@@ -144,25 +154,44 @@ func (h *UserHandler) LeaveMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.users.Deactivate(userID); err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			notFound(w, "User not found")
-			return
-		}
+	now := time.Now().UTC()
+	rowsAffected, err := h.queries.DeactivateUser(r.Context(), sqldb.DeactivateUserParams{
+		DeactivatedAt: &now,
+		UpdatedAt:     &now,
+		ID:            userID,
+	})
+	if err != nil {
 		slog.Error("error deactivating user", "error", err, "user_id", userID)
 		internalError(w)
 		return
 	}
+	if rowsAffected == 0 {
+		notFound(w, "User not found")
+		return
+	}
 
-	if err := h.refreshTokens.RevokeAllForUser(userID); err != nil {
+	revokedAt := time.Now().UTC()
+	if err := h.queries.RevokeAllRefreshTokensForUser(r.Context(), sqldb.RevokeAllRefreshTokensForUserParams{
+		RevokedAt: &revokedAt,
+		UserID:    userID,
+	}); err != nil {
 		slog.Error("error revoking refresh tokens", "error", err, "user_id", userID)
 		internalError(w)
 		return
 	}
 
-	if err := h.users.IncrementSessionVersion(userID); err != nil {
+	updatedAt := time.Now().UTC()
+	rowsAffected, err = h.queries.IncrementUserSessionVersion(r.Context(), sqldb.IncrementUserSessionVersionParams{
+		UpdatedAt: &updatedAt,
+		ID:        userID,
+	})
+	if err != nil {
 		slog.Error("error incrementing session version", "error", err, "user_id", userID)
 		internalError(w)
+		return
+	}
+	if rowsAffected == 0 {
+		notFound(w, "User not found")
 		return
 	}
 
