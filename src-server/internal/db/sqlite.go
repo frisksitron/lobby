@@ -2,15 +2,27 @@ package db
 
 import (
 	"database/sql"
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/pressly/goose/v3"
+
+	sqldb "lobby/internal/db/sqlc"
 )
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 type DB struct {
 	*sql.DB
+	queries *sqldb.Queries
+}
+
+func (db *DB) Queries() *sqldb.Queries {
+	return db.queries
 }
 
 func Open(path string) (*DB, error) {
@@ -29,7 +41,10 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
 
-	d := &DB{db}
+	d := &DB{
+		DB:      db,
+		queries: sqldb.New(db),
+	}
 	if err := d.migrate(); err != nil {
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
@@ -38,61 +53,13 @@ func Open(path string) (*DB, error) {
 }
 
 func (db *DB) migrate() error {
-	migrations := []string{
-		`CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE CHECK(length(trim(username)) > 0),
-        email TEXT NOT NULL UNIQUE,
-        avatar_url TEXT,
-        session_version INTEGER NOT NULL DEFAULT 1,
-        created_at DATETIME NOT NULL,
-        updated_at DATETIME NOT NULL,
-        deactivated_at DATETIME
-    )`,
-		`CREATE TABLE IF NOT EXISTS magic_codes (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        code_hash TEXT NOT NULL,
-        expires_at DATETIME NOT NULL,
-        used_at DATETIME,
-        attempts INTEGER NOT NULL DEFAULT 0,
-        created_at DATETIME NOT NULL
-    )`,
-		`CREATE INDEX IF NOT EXISTS idx_magic_codes_email ON magic_codes(email)`,
-		`CREATE INDEX IF NOT EXISTS idx_magic_codes_expiry ON magic_codes(expires_at)`,
-		`CREATE TABLE IF NOT EXISTS registration_tokens (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        token_hash TEXT NOT NULL UNIQUE,
-        expires_at DATETIME NOT NULL,
-        used_at DATETIME,
-        created_at DATETIME NOT NULL
-    )`,
-		`CREATE INDEX IF NOT EXISTS idx_registration_tokens_expiry ON registration_tokens(expires_at)`,
-		`CREATE TABLE IF NOT EXISTS refresh_tokens (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES users(id),
-        token_hash TEXT NOT NULL UNIQUE,
-        expires_at DATETIME NOT NULL,
-        created_at DATETIME NOT NULL,
-        revoked_at DATETIME
-    )`,
-		`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash)`,
-		`CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        author_id TEXT NOT NULL REFERENCES users(id),
-        content TEXT NOT NULL,
-        created_at DATETIME NOT NULL,
-        edited_at DATETIME
-    )`,
-		`CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC)`,
+	goose.SetBaseFS(migrationsFS)
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return fmt.Errorf("setting goose dialect: %w", err)
 	}
 
-	for _, m := range migrations {
-		if _, err := db.Exec(m); err != nil {
-			return fmt.Errorf("executing migration: %w", err)
-		}
+	if err := goose.Up(db.DB, "migrations"); err != nil {
+		return fmt.Errorf("applying goose migrations: %w", err)
 	}
 
 	return nil

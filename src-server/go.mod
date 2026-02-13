@@ -11,6 +11,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.33
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/pion/webrtc/v4 v4.2.3
+	github.com/pressly/goose/v3 v3.26.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -22,8 +23,12 @@ require (
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
+	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/pion/transport/v4 v4.0.1 // indirect
+	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 )
