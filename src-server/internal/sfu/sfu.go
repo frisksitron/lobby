@@ -16,8 +16,8 @@ type RtcOfferPayload struct {
 
 type RtcIceCandidatePayload struct {
 	Candidate     string  `json:"candidate"`
-	SDPMid        *string `json:"sdpMid,omitempty"`
-	SDPMLineIndex *uint16 `json:"sdpMLineIndex,omitempty"`
+	SDPMid        *string `json:"sdp_mid,omitempty"`
+	SDPMLineIndex *uint16 `json:"sdp_mline_index,omitempty"`
 }
 
 // SFU manages WebRTC peer connections for voice chat

@@ -188,21 +188,18 @@ function handleVoiceStateUpdate(payload: VoiceStateUpdatePayload): void {
     setConfirmedState({ muted: payload.muted, deafened: payload.deafened })
 
     if (payload.in_voice) {
-      if (voice.connecting) {
-        setLocalVoice((prev) => ({
-          ...prev,
-          muted: payload.muted,
-          deafened: payload.deafened
-        }))
-      } else {
-        transitionVoiceLifecycle("active", "server-voice-state", true)
-        setLocalVoice((prev) => ({
-          ...prev,
-          inVoice: true,
-          muted: payload.muted,
-          deafened: payload.deafened
-        }))
+      if (!voice.inVoice) {
+        playSound("user-join")
       }
+
+      transitionVoiceLifecycle("active", "server-voice-state", true)
+      setLocalVoice((prev) => ({
+        ...prev,
+        connecting: false,
+        inVoice: true,
+        muted: payload.muted,
+        deafened: payload.deafened
+      }))
     } else {
       resetLocalVoiceState("server-voice-state")
     }
@@ -238,12 +235,8 @@ async function handleRtcReady(payload: RtcReadyPayload): Promise<void> {
     }
 
     clearVoiceErrors()
-    playSound("user-join")
-    transitionVoiceLifecycle("active", "rtc-ready")
-    setLocalVoice((prev) => ({ ...prev, connecting: false, inVoice: true }))
     if (userId) {
       updateUser(userId, {
-        inVoice: true,
         voiceMuted: voice.muted,
         voiceDeafened: voice.deafened,
         voiceSpeaking: false

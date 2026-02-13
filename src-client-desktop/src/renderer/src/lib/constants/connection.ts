@@ -5,6 +5,7 @@ export type ConnectionStatusType =
   | "unavailable"
   | "max_retries"
   | "needs_auth"
+  | "protocol_mismatch"
   | "session_replaced"
 
 export type ConnectionStatusInfo = {
@@ -52,6 +53,12 @@ export const CONNECTION_STATUS = {
     message: "Signed in from another device.",
     showCountdown: false,
     showRetry: true
+  },
+  protocolMismatch: {
+    type: "protocol_mismatch",
+    message: "Client/server protocol mismatch. Update your app and reconnect.",
+    showCountdown: false,
+    showRetry: false
   },
   maxRetries: (attempts: number): ConnectionStatusInfo => ({
     type: "max_retries",

@@ -89,6 +89,8 @@ type Client struct {
 	send          chan *WSMessage
 	connCloseOnce sync.Once
 	sendCloseOnce sync.Once
+	authExpiryMu  sync.Mutex
+	authExpiry    *time.Timer
 
 	callbackMu              sync.Mutex
 	identifiedCallbacks     []func(*Client)
@@ -184,6 +186,8 @@ func (c *Client) runCloseCallbacks() {
 
 // Close performs cleanup for the client, ensuring it only happens once
 func (c *Client) Close() {
+	c.stopAuthExpiryTimer()
+
 	if !c.transitionTo(ClientStateClosing) {
 		// Already closing/closed, but still ensure conn is closed
 		c.connCloseOnce.Do(func() { c.conn.Close() })
@@ -192,6 +196,73 @@ func (c *Client) Close() {
 	c.runCloseCallbacks()
 	c.connCloseOnce.Do(func() { c.conn.Close() })
 	c.transitionTo(ClientStateClosed)
+}
+
+func (c *Client) stopAuthExpiryTimer() {
+	c.authExpiryMu.Lock()
+	defer c.authExpiryMu.Unlock()
+
+	if c.authExpiry != nil {
+		c.authExpiry.Stop()
+		c.authExpiry = nil
+	}
+}
+
+func (c *Client) scheduleAuthExpiry(expiresAt time.Time) {
+	delay := time.Until(expiresAt)
+	if delay <= 0 {
+		go c.handleAuthExpired()
+		return
+	}
+
+	c.authExpiryMu.Lock()
+	defer c.authExpiryMu.Unlock()
+
+	if c.authExpiry != nil {
+		c.authExpiry.Stop()
+	}
+
+	c.authExpiry = time.AfterFunc(delay, c.handleAuthExpired)
+}
+
+func (c *Client) handleAuthExpired() {
+	if !c.IsIdentified() || c.IsClosed() || c.user == nil {
+		return
+	}
+
+	if active := c.hub.GetClient(c.user.ID); active != c {
+		return
+	}
+
+	c.trySend(&WSMessage{
+		Op:   OpDispatch,
+		Type: EventError,
+		Data: ErrorPayload{
+			Code:    ErrCodeAuthExpired,
+			Message: "Access token expired",
+		},
+	})
+
+	c.Close()
+}
+
+func (c *Client) trySend(msg *WSMessage) bool {
+	if c.IsClosed() {
+		return false
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Debug("attempted to send on closed channel", "component", "ws", "user_id", c.getUserID())
+		}
+	}()
+
+	select {
+	case c.send <- msg:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Client) ReadPump() {
@@ -346,6 +417,21 @@ func (c *Client) handleDispatch(msg *WSMessage) {
 	}
 }
 
+func (c *Client) decodeDispatchData(msg *WSMessage, target interface{}) bool {
+	raw, err := json.Marshal(msg.Data)
+	if err != nil {
+		slog.Warn("failed to encode dispatch payload", "component", "ws", "type", msg.Type, "user_id", c.getUserID(), "error", err)
+		return false
+	}
+
+	if err := json.Unmarshal(raw, target); err != nil {
+		slog.Warn("failed to decode dispatch payload", "component", "ws", "type", msg.Type, "user_id", c.getUserID(), "error", err)
+		return false
+	}
+
+	return true
+}
+
 func (c *Client) allowRTCSignaling(command string) bool {
 	ok, retryAfter := c.allowCommandRateLimit(&c.rtcSignals, rtcSignalingLimit, rtcSignalingWindow)
 	if ok {
@@ -405,10 +491,16 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		return
 	}
 
-	data, _ := msg.Data.(map[string]interface{})
+	var data IdentifyPayload
+	if !c.decodeDispatchData(msg, &data) {
+		slog.Warn("IDENTIFY invalid payload", "component", "ws", "user_id", c.getUserID())
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "Invalid identify payload"}}
+		c.Close()
+		return
+	}
 
 	// Extract and validate token from IDENTIFY payload
-	token, _ := data["token"].(string)
+	token := data.Token
 	if token == "" {
 		slog.Warn("IDENTIFY missing token", "component", "ws")
 		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "Missing token"}}
@@ -424,10 +516,32 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		return
 	}
 
+	if claims.ExpiresAt == nil {
+		slog.Warn("IDENTIFY token missing expiry", "component", "ws", "user_id", claims.UserID)
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "Token missing expiry"}}
+		c.Close()
+		return
+	}
+
+	expiresAt := claims.ExpiresAt.Time
+	if !expiresAt.After(time.Now()) {
+		slog.Warn("IDENTIFY token already expired", "component", "ws", "user_id", claims.UserID)
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthExpired, Message: "Access token expired"}}
+		c.Close()
+		return
+	}
+
 	user, err := c.hub.userRepo.FindByID(claims.UserID)
 	if err != nil {
 		slog.Warn("IDENTIFY user not found", "component", "ws", "error", err)
 		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "User not found"}}
+		c.Close()
+		return
+	}
+
+	if claims.SessionVersion != user.SessionVersion {
+		slog.Warn("IDENTIFY token session version mismatch", "component", "ws", "user_id", user.ID)
+		c.send <- &WSMessage{Op: OpDispatch, Type: EventError, Data: ErrorPayload{Code: ErrCodeAuthFailed, Message: "Session invalidated"}}
 		c.Close()
 		return
 	}
@@ -441,12 +555,10 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 	c.sessionID = uuid.New().String()
 	c.runIdentifiedCallbacks()
 
-	if presence, ok := data["presence"].(map[string]interface{}); ok {
-		if status, ok := presence["status"].(string); ok {
-			switch status {
-			case "online", "idle", "dnd":
-				c.SetStatus(status)
-			}
+	if data.Presence != nil {
+		switch data.Presence.Status {
+		case "online", "idle", "dnd":
+			c.SetStatus(data.Presence.Status)
 		}
 	}
 
@@ -468,12 +580,15 @@ func (c *Client) handleIdentify(msg *WSMessage) {
 		return
 	}
 
+	c.scheduleAuthExpiry(expiresAt)
+
 	c.send <- &WSMessage{
 		Op: OpReady,
 		Data: ReadyPayload{
-			SessionID: c.sessionID,
-			User:      c.user,
-			Members:   c.hub.GetOnlineMembers(),
+			ProtocolVersion: ProtocolVersion,
+			SessionID:       c.sessionID,
+			User:            NewReadyUser(c.user),
+			Members:         c.hub.GetMemberSnapshot(),
 		},
 	}
 
@@ -485,17 +600,17 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 		return
 	}
 
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
+	var data MessageSendPayload
+	if !c.decodeDispatchData(msg, &data) {
 		return
 	}
 
-	content, ok := data["content"].(string)
-	if !ok || content == "" {
+	content := data.Content
+	if content == "" {
 		return
 	}
 
-	nonce, _ := data["nonce"].(string)
+	nonce := data.Nonce
 
 	if utf8.RuneCountInString(content) > maxMessageContentLength {
 		c.send <- &WSMessage{
@@ -559,15 +674,12 @@ func (c *Client) handlePresenceSet(msg *WSMessage) {
 		return
 	}
 
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
+	var data PresenceSetPayload
+	if !c.decodeDispatchData(msg, &data) {
 		return
 	}
 
-	status, ok := data["status"].(string)
-	if !ok {
-		return
-	}
+	status := data.Status
 
 	switch status {
 	case "online", "idle", "dnd", "offline":
@@ -659,6 +771,8 @@ func (c *Client) transitionTo(newState ClientState) bool {
 
 // CloseSend closes the send channel (called by hub during cleanup)
 func (c *Client) CloseSend() {
+	c.stopAuthExpiryTimer()
+
 	c.sendCloseOnce.Do(func() { close(c.send) })
 	if c.transitionTo(ClientStateClosing) {
 		c.runCloseCallbacks()
@@ -669,6 +783,11 @@ func (c *Client) CloseSend() {
 
 func (c *Client) handleVoiceJoin(msg *WSMessage) {
 	if !c.IsIdentified() {
+		return
+	}
+
+	var data VoiceJoinPayload
+	if !c.decodeDispatchData(msg, &data) {
 		return
 	}
 
@@ -727,16 +846,8 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 		return
 	}
 
-	muted := false
-	deafened := false
-	if data, ok := msg.Data.(map[string]interface{}); ok {
-		if m, ok := data["muted"].(bool); ok {
-			muted = m
-		}
-		if d, ok := data["deafened"].(bool); ok {
-			deafened = d
-		}
-	}
+	muted := data.Muted
+	deafened := data.Deafened
 
 	if err := c.hub.BeginVoiceJoin(c.user.ID, muted, deafened); err != nil {
 		c.send <- &WSMessage{
@@ -768,8 +879,6 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 		}
 	}
 
-	participants := c.hub.GetVoiceParticipantIDs(c.user.ID)
-
 	iceServers := []ICEServerInfo{}
 	if cfg := c.hub.GetSFUConfig(); cfg != nil {
 		for _, s := range sfu.BuildICEServers(cfg.TURN, c.user.ID) {
@@ -783,8 +892,7 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 
 	// Send RTC_READY first so client can set up signaling listeners
 	c.hub.SendDispatchToUser(c.user.ID, EventRtcReady, RtcReadyPayload{
-		Participants: participants,
-		ICEServers:   iceServers,
+		ICEServers: iceServers,
 	})
 
 	// Then send initial offer - client's listeners are now ready
@@ -842,14 +950,14 @@ func (c *Client) handleRtcOffer(msg *WSMessage) {
 		return
 	}
 
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
+	var data RtcOfferPayload
+	if !c.decodeDispatchData(msg, &data) {
 		slog.Warn("invalid RTC_OFFER payload", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
-	sdp, ok := data["sdp"].(string)
-	if !ok || sdp == "" {
+	sdp := data.SDP
+	if sdp == "" {
 		slog.Warn("missing SDP in RTC_OFFER", "component", "ws", "user_id", c.user.ID)
 		return
 	}
@@ -898,14 +1006,14 @@ func (c *Client) handleRtcAnswer(msg *WSMessage) {
 		return
 	}
 
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
+	var data RtcAnswerPayload
+	if !c.decodeDispatchData(msg, &data) {
 		slog.Warn("invalid RTC_ANSWER payload", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
-	sdp, ok := data["sdp"].(string)
-	if !ok || sdp == "" {
+	sdp := data.SDP
+	if sdp == "" {
 		slog.Warn("missing SDP in RTC_ANSWER", "component", "ws", "user_id", c.user.ID)
 		return
 	}
@@ -966,29 +1074,19 @@ func (c *Client) handleRtcIceCandidate(msg *WSMessage) {
 		return
 	}
 
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
+	var data RtcIceCandidatePayload
+	if !c.decodeDispatchData(msg, &data) {
 		slog.Warn("invalid RTC_ICE_CANDIDATE payload", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
-	candidate, ok := data["candidate"].(string)
-	if !ok {
+	candidate := data.Candidate
+	if candidate == "" {
 		slog.Warn("missing candidate in RTC_ICE_CANDIDATE", "component", "ws", "user_id", c.user.ID)
 		return
 	}
 
-	var sdpMid *string
-	var sdpMLineIndex *uint16
-	if mid, ok := data["sdpMid"].(string); ok {
-		sdpMid = &mid
-	}
-	if idx, ok := data["sdpMLineIndex"].(float64); ok {
-		i := uint16(idx)
-		sdpMLineIndex = &i
-	}
-
-	if err := c.hub.HandleRtcIceCandidate(c.user.ID, candidate, sdpMid, sdpMLineIndex); err != nil {
+	if err := c.hub.HandleRtcIceCandidate(c.user.ID, candidate, data.SDPMid, data.SDPMLineIndex); err != nil {
 		slog.Error("error handling ICE candidate", "component", "ws", "user_id", c.user.ID, "error", err)
 		c.send <- &WSMessage{
 			Op:   OpDispatch,
@@ -1007,8 +1105,8 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 		return
 	}
 
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
+	var data VoiceStateSetPayload
+	if !c.decodeDispatchData(msg, &data) {
 		return
 	}
 
@@ -1025,23 +1123,18 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 	}
 
 	// Speaking: broadcast directly with no rate limit (must be in voice)
-	if speaking, ok := data["speaking"].(bool); ok {
+	if data.Speaking != nil {
 		if c.hub.GetUserVoiceState(c.user.ID) != nil {
 			c.hub.BroadcastDispatch(EventVoiceSpeaking, VoiceSpeakingPayload{
 				UserID:   c.user.ID,
-				Speaking: speaking,
+				Speaking: *data.Speaking,
 			})
 		}
 	}
 
 	// Mute/deafen changes
-	var muted, deafened *bool
-	if m, ok := data["muted"].(bool); ok {
-		muted = &m
-	}
-	if d, ok := data["deafened"].(bool); ok {
-		deafened = &d
-	}
+	muted := data.Muted
+	deafened := data.Deafened
 
 	if muted == nil && deafened == nil {
 		return
@@ -1176,13 +1269,13 @@ func (c *Client) handleScreenShareSubscribe(msg *WSMessage) {
 		return
 	}
 
-	data, ok := msg.Data.(map[string]interface{})
-	if !ok {
+	var data ScreenShareSubscribePayload
+	if !c.decodeDispatchData(msg, &data) {
 		return
 	}
 
-	streamerID, ok := data["streamer_id"].(string)
-	if !ok || streamerID == "" {
+	streamerID := data.StreamerID
+	if streamerID == "" {
 		return
 	}
 

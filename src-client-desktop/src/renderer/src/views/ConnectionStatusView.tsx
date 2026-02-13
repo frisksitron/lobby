@@ -32,6 +32,13 @@ const ConnectionStatusView: Component = () => {
       return CONNECTION_STATUS.sessionReplaced
     }
 
+    if (detail.reason === "protocol_mismatch") {
+      return {
+        ...CONNECTION_STATUS.protocolMismatch,
+        message: detail.message || CONNECTION_STATUS.protocolMismatch.message
+      }
+    }
+
     if (detail.status === "offline") {
       return CONNECTION_STATUS.offline
     }
@@ -70,7 +77,8 @@ const ConnectionStatusView: Component = () => {
         when={
           statusInfo().type === "max_retries" ||
           statusInfo().type === "unavailable" ||
-          statusInfo().type === "session_replaced"
+          statusInfo().type === "session_replaced" ||
+          statusInfo().type === "protocol_mismatch"
         }
       >
         <TbOutlineAlertTriangle class="w-8 h-8 text-warning" />

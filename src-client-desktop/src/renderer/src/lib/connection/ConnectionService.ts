@@ -1,6 +1,6 @@
 import { type Accessor, batch, createSignal, type Setter } from "solid-js"
 import type { User } from "../../../../shared/types"
-import { getMe as apiGetMe, getUsers } from "../api/auth"
+import { getMe as apiGetMe } from "../api/auth"
 import type { ServerInfo } from "../api/types"
 import { ApiError } from "../api/types"
 import {
@@ -52,6 +52,7 @@ interface Resolvers {
   getUserById: (userId: string) => User | undefined
   onUserAdd: (users: User[]) => void
   onUserUpdate: (userId: string, updates: Partial<User>) => void
+  onUserRemove: (userId: string) => void
   addServerEntry: (entry: { id: string; name: string; url: string; email: string }) => Promise<void>
 }
 
@@ -213,23 +214,36 @@ class ConnectionService {
     })
   }
 
-  private classifyDisconnectReason(): "browser_offline" | "auth_expired" | "server_error" {
+  private classifyDisconnectReason():
+    | "browser_offline"
+    | "auth_expired"
+    | "protocol_mismatch"
+    | "server_error" {
     if (!wsManager.getIsOnline()) {
       return "browser_offline"
     }
 
     const serverError = wsManager.getLastServerError()
-    if (serverError?.code === "AUTH_FAILED") {
+    if (serverError?.code === "AUTH_FAILED" || serverError?.code === "AUTH_EXPIRED") {
       return "auth_expired"
+    }
+
+    if (serverError?.code === "PROTOCOL_MISMATCH") {
+      return "protocol_mismatch"
     }
 
     const disconnectInfo = wsManager.getLastDisconnectInfo()
     if (
       disconnectInfo?.serverErrorCode === "AUTH_FAILED" ||
+      disconnectInfo?.serverErrorCode === "AUTH_EXPIRED" ||
       disconnectInfo?.code === 1008 ||
       disconnectInfo?.code === 4001
     ) {
       return "auth_expired"
+    }
+
+    if (disconnectInfo?.serverErrorCode === "PROTOCOL_MISMATCH") {
+      return "protocol_mismatch"
     }
 
     return "server_error"
@@ -254,6 +268,20 @@ class ConnectionService {
       return
     }
 
+    if (reason === "protocol_mismatch") {
+      const mismatchMessage =
+        wsManager.getLastServerError()?.message ||
+        "Client/server protocol mismatch. Update your app and reconnect."
+      this.setPhase("failed")
+      this.setConnectionDetail({
+        status: "unavailable",
+        reason: "protocol_mismatch",
+        message: mismatchMessage,
+        since: Date.now()
+      })
+      return
+    }
+
     this.setPhase("failed")
     this.setConnectionDetail({
       status: "unavailable",
@@ -274,6 +302,8 @@ class ConnectionService {
         const usersToAdd: User[] = []
         payload.members.forEach((member) => {
           const updates: Partial<User> = {
+            username: member.username,
+            avatarUrl: member.avatar_url,
             status: member.status,
             inVoice: member.in_voice ?? false,
             voiceMuted: member.muted ?? false,
@@ -340,14 +370,7 @@ class ConnectionService {
 
     unsubscribes.push(
       wsManager.on("user_left", (payload) => {
-        this.resolvers?.onUserUpdate(payload.user_id, {
-          status: "offline",
-          inVoice: false,
-          voiceMuted: false,
-          voiceDeafened: false,
-          voiceSpeaking: false,
-          isStreaming: false
-        })
+        this.resolvers?.onUserRemove(payload.user_id)
         this.emit("user_left", payload)
       })
     )
@@ -388,8 +411,17 @@ class ConnectionService {
         }
 
         const disconnectReason = this.classifyDisconnectReason()
-        if (disconnectReason === "auth_expired") {
-          this.setAuthExpiredState("Session expired. Sign in to continue.")
+        if (disconnectReason === "protocol_mismatch") {
+          const mismatchMessage =
+            wsManager.getLastServerError()?.message ||
+            "Client/server protocol mismatch. Update your app and reconnect."
+          this.setPhase("failed")
+          this.setConnectionDetail({
+            status: "unavailable",
+            reason: "protocol_mismatch",
+            message: mismatchMessage,
+            since: Date.now()
+          })
           this.emit("disconnected", undefined)
           return
         }
@@ -484,23 +516,6 @@ class ConnectionService {
   private async connectWS(serverId: string, url: string, token: string): Promise<boolean> {
     const generation = this.connectGeneration
 
-    try {
-      const allUsers = await getUsers(url, token)
-      if (this.connectGeneration !== generation) return false
-      const usersWithDefaults = allUsers.map((user) => ({
-        ...user,
-        status: "offline" as const,
-        inVoice: false,
-        voiceMuted: false,
-        voiceDeafened: false,
-        voiceSpeaking: false
-      }))
-      this.resolvers?.onUserAdd(usersWithDefaults)
-    } catch (err) {
-      if (this.connectGeneration !== generation) return false
-      log.error("Failed to fetch users:", err)
-    }
-
     const unsubscribes = this.setupWSListeners()
     try {
       await wsManager.connect(url, token)
@@ -532,6 +547,14 @@ class ConnectionService {
   private scheduleRetry(serverId: string): void {
     const scheduled = this.retry.schedule(async () => {
       const success = await this.connectToServer(serverId)
+      if (!success) {
+        if (this.phase() === "needs_auth") {
+          return true
+        }
+        if (this.connectionDetail().reason === "protocol_mismatch") {
+          return true
+        }
+      }
       return success
     })
 
@@ -696,7 +719,11 @@ class ConnectionService {
         maxReconnectAttempts: this.retry.getMaxAttempts()
       })
       const success = await this.connectToServer(serverId)
-      if (!success && this.phase() === "failed") {
+      if (
+        !success &&
+        this.phase() === "failed" &&
+        this.connectionDetail().reason !== "protocol_mismatch"
+      ) {
         this.scheduleRetry(serverId)
       }
     }

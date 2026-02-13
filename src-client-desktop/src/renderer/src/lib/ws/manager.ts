@@ -21,6 +21,7 @@ import {
   type UserUpdatePayload,
   type VoiceSpeakingPayload,
   type VoiceStateUpdatePayload,
+  WS_PROTOCOL_VERSION,
   type WSClientEvents,
   type WSClientEventType,
   WSCommandType,
@@ -181,9 +182,15 @@ class WebSocketManager {
           this.handleMessage(message)
 
           if (message.op === WSOpCode.Ready) {
-            settled = true
-            clearTimeout(connectTimeout)
-            resolve()
+            if (this.state === "connected") {
+              settled = true
+              clearTimeout(connectTimeout)
+              resolve()
+            } else if (!settled) {
+              settled = true
+              clearTimeout(connectTimeout)
+              reject(new Error("WebSocket protocol version mismatch"))
+            }
           }
         } catch (error) {
           log.error("Failed to parse message:", error)
@@ -295,8 +302,8 @@ class WebSocketManager {
   sendRtcIceCandidate(candidate: RTCIceCandidate): void {
     this.sendDispatch(WSCommandType.RtcIceCandidate, {
       candidate: candidate.candidate,
-      sdpMid: candidate.sdpMid,
-      sdpMLineIndex: candidate.sdpMLineIndex
+      sdp_mid: candidate.sdpMid,
+      sdp_mline_index: candidate.sdpMLineIndex
     })
   }
 
@@ -385,10 +392,6 @@ class WebSocketManager {
         this.handleInvalidSession(message.d as InvalidSessionPayload)
         break
 
-      case WSOpCode.Reconnect:
-        this.handleReconnect()
-        break
-
       case WSOpCode.Dispatch:
         this.handleDispatch(message)
         break
@@ -404,6 +407,20 @@ class WebSocketManager {
   }
 
   private handleReady(payload: ReadyPayload): void {
+    if (payload.protocol_version !== WS_PROTOCOL_VERSION) {
+      const received = payload.protocol_version ?? "missing"
+      const mismatch: ErrorPayload = {
+        code: "PROTOCOL_MISMATCH",
+        message: `Protocol version mismatch. Client expects ${WS_PROTOCOL_VERSION}, server sent ${received}.`
+      }
+
+      this.lastServerError = mismatch
+      log.error(mismatch.message)
+      this.emit("server_error", mismatch)
+      this.ws?.close(1008, "Protocol version mismatch")
+      return
+    }
+
     log.info("Received READY, session:", payload.session_id)
     this.state = "connected"
     this.emit("connected", undefined)
@@ -413,11 +430,6 @@ class WebSocketManager {
   private handleInvalidSession(payload: InvalidSessionPayload): void {
     log.info("Received INVALID_SESSION")
     this.emit("invalid_session", payload)
-  }
-
-  private handleReconnect(): void {
-    log.info("Received RECONNECT from server")
-    this.ws?.close(1000, "Server requested reconnect")
   }
 
   private handleDispatch(message: WSMessage): void {

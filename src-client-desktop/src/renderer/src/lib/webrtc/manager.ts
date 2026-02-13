@@ -639,8 +639,8 @@ class WebRTCManager {
     try {
       const candidate = new RTCIceCandidate({
         candidate: payload.candidate,
-        sdpMid: payload.sdpMid,
-        sdpMLineIndex: payload.sdpMLineIndex
+        sdpMid: payload.sdp_mid,
+        sdpMLineIndex: payload.sdp_mline_index
       })
 
       await this.peerConnection.addIceCandidate(candidate)

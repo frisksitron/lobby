@@ -78,7 +78,6 @@ type Hub struct {
 	sfu           *sfu.SFU
 	sfuCfg        *config.SFUConfig
 	screenShare   *sfu.ScreenShareManager
-	sequence      int64
 	mu            sync.RWMutex
 }
 
@@ -95,7 +94,6 @@ func NewHub(jwtService *auth.JWTService, userRepo *db.UserRepository, messageRep
 		userRepo:      userRepo,
 		messageRepo:   messageRepo,
 		sfuCfg:        sfuCfg,
-		sequence:      0,
 	}
 
 	// Initialize SFU
@@ -148,6 +146,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.clients[req.client] = true
 			wasInVoice := false
+			shouldBroadcastOnline := false
 			var replacedUserID string
 			if req.client.user != nil {
 				replacedUserID = req.client.user.ID
@@ -162,6 +161,8 @@ func (h *Hub) Run() {
 					}
 					old.Close()
 					delete(h.clients, old)
+				} else {
+					shouldBroadcastOnline = true
 				}
 				h.userClients[replacedUserID] = req.client
 			}
@@ -173,16 +174,8 @@ func (h *Hub) Run() {
 
 			close(req.done)
 
-			if req.client.user != nil {
-				h.BroadcastDispatchExcept(EventUserJoined, UserJoinedPayload{
-					Member: MemberState{
-						ID:        req.client.user.ID,
-						Username:  req.client.user.Username,
-						Avatar:    req.client.user.GetAvatarURL(),
-						Status:    req.client.GetStatus(),
-						CreatedAt: req.client.user.CreatedAt,
-					},
-				}, req.client)
+			if req.client.user != nil && shouldBroadcastOnline {
+				h.broadcastPresenceUpdate(req.client.user.ID, req.client.GetStatus(), req.client)
 			}
 
 		case client := <-h.unregister:
@@ -217,10 +210,11 @@ func (h *Hub) Run() {
 			}
 
 			if client.user != nil && wasActiveClient {
-				h.broadcastPresenceUpdate(client.user.ID, "offline", nil)
-				h.BroadcastDispatch(EventUserLeft, UserLeftPayload{
-					UserID: client.user.ID,
-				})
+				if _, err := h.userRepo.FindByID(client.user.ID); err == nil {
+					h.broadcastPresenceUpdate(client.user.ID, "offline", nil)
+				} else if !errors.Is(err, db.ErrNotFound) {
+					slog.Error("error loading user on disconnect", "component", "hub", "error", err, "user_id", client.user.ID)
+				}
 			}
 
 		case message := <-h.broadcast:
@@ -274,25 +268,16 @@ func (h *Hub) sendToClientLocked(client *Client, msg *WSMessage) {
 	}
 }
 
-func (h *Hub) nextSequence() int64 {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.sequence++
-	return h.sequence
-}
-
 func (h *Hub) Broadcast(msg *WSMessage) {
 	h.broadcast <- msg
 }
 
-// BroadcastDispatch sends a DISPATCH message to all clients with sequence number
+// BroadcastDispatch sends a DISPATCH message to all clients.
 func (h *Hub) BroadcastDispatch(eventType string, data interface{}) {
-	seq := h.nextSequence()
 	msg := &WSMessage{
 		Op:   OpDispatch,
 		Type: eventType,
 		Data: data,
-		Seq:  &seq,
 	}
 	h.broadcast <- msg
 }
@@ -312,12 +297,10 @@ func (h *Hub) BroadcastExcept(msg *WSMessage, except *Client) {
 
 // BroadcastDispatchExcept sends a DISPATCH to all clients except one
 func (h *Hub) BroadcastDispatchExcept(eventType string, data interface{}, except *Client) {
-	seq := h.nextSequence()
 	msg := &WSMessage{
 		Op:   OpDispatch,
 		Type: eventType,
 		Data: data,
-		Seq:  &seq,
 	}
 
 	h.mu.RLock()
@@ -340,44 +323,52 @@ func (h *Hub) SendToUser(userID string, msg *WSMessage) {
 	}
 }
 
-func (h *Hub) GetOnlineMembers() []MemberState {
+func (h *Hub) GetMemberSnapshot() []MemberState {
+	users, err := h.userRepo.FindAll()
+	if err != nil {
+		slog.Error("error building member snapshot", "component", "hub", "error", err)
+		return []MemberState{}
+	}
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	members := make([]MemberState, 0, len(h.clients))
-	for client := range h.clients {
-		if !client.IsIdentified() {
-			continue
+	members := make([]MemberState, 0, len(users))
+	for _, user := range users {
+		status := "offline"
+		if client, ok := h.userClients[user.ID]; ok && client.IsIdentified() {
+			status = client.GetStatus()
 		}
 
-		// Include voice state from voiceSessions
 		inVoice := false
 		muted := false
 		deafened := false
-		if session, ok := h.voiceSessions[client.user.ID]; ok {
-			inVoice = true
-			muted = session.Muted
-			deafened = session.Deafened
+		if session, ok := h.voiceSessions[user.ID]; ok {
+			if session.State == VoiceLifecycleJoining || session.State == VoiceLifecycleActive {
+				inVoice = true
+				muted = session.Muted
+				deafened = session.Deafened
+			}
 		}
 
-		// Check streaming state
 		streaming := false
 		if h.screenShare != nil {
-			streaming = h.screenShare.IsStreaming(client.user.ID)
+			streaming = h.screenShare.IsStreaming(user.ID)
 		}
 
 		members = append(members, MemberState{
-			ID:        client.user.ID,
-			Username:  client.user.Username,
-			Avatar:    client.user.GetAvatarURL(),
-			Status:    client.GetStatus(),
+			ID:        user.ID,
+			Username:  user.Username,
+			Avatar:    user.GetAvatarURL(),
+			Status:    status,
 			InVoice:   inVoice,
 			Muted:     muted,
 			Deafened:  deafened,
 			Streaming: streaming,
-			CreatedAt: client.user.CreatedAt,
+			CreatedAt: user.CreatedAt,
 		})
 	}
+
 	return members
 }
 
@@ -396,7 +387,6 @@ func (h *Hub) IsUserOnline(userID string) bool {
 
 // If except is not nil, that client won't receive the message
 func (h *Hub) broadcastPresenceUpdate(userID string, status string, except *Client) {
-	seq := h.nextSequence()
 	msg := &WSMessage{
 		Op:   OpDispatch,
 		Type: EventPresenceUpdate,
@@ -404,7 +394,6 @@ func (h *Hub) broadcastPresenceUpdate(userID string, status string, except *Clie
 			UserID: userID,
 			Status: status,
 		},
-		Seq: &seq,
 	}
 
 	h.mu.RLock()
@@ -539,22 +528,6 @@ func (h *Hub) UpdateUserVoiceState(userID string, muted, deafened *bool) *VoiceS
 	return &VoiceState{Muted: session.Muted, Deafened: session.Deafened}
 }
 
-func (h *Hub) GetVoiceParticipantIDs(excludeUserID string) []string {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	var ids []string
-	for id, session := range h.voiceSessions {
-		if id == excludeUserID {
-			continue
-		}
-		if session.State == VoiceLifecycleJoining || session.State == VoiceLifecycleActive {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
 func (h *Hub) GetSFU() *sfu.SFU {
 	return h.sfu
 }
@@ -629,24 +602,20 @@ func (h *Hub) handleSfuError(userID string, err error) {
 
 // handleSfuSignaling is called by the SFU when it needs to send signaling messages
 func (h *Hub) handleSfuSignaling(userID string, eventType string, payload interface{}) {
-	seq := h.nextSequence()
 	msg := &WSMessage{
 		Op:   OpDispatch,
 		Type: eventType,
 		Data: payload,
-		Seq:  &seq,
 	}
 	h.SendToUser(userID, msg)
 }
 
 // SendDispatchToUser sends a DISPATCH message to a specific user
 func (h *Hub) SendDispatchToUser(userID string, eventType string, payload interface{}) {
-	seq := h.nextSequence()
 	msg := &WSMessage{
 		Op:   OpDispatch,
 		Type: eventType,
 		Data: payload,
-		Seq:  &seq,
 	}
 	h.SendToUser(userID, msg)
 }

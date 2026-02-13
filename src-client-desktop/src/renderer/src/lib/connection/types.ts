@@ -15,6 +15,7 @@ export type ConnectionDetailReason =
   | "browser_offline"
   | "ws_closed"
   | "server_error"
+  | "protocol_mismatch"
   | "auth_expired"
   | "session_replaced"
 

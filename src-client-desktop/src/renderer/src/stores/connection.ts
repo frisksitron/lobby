@@ -3,7 +3,7 @@ import type { Session, User } from "../../../shared/types"
 import type { ServerInfo } from "../lib/api/types"
 import { connectionService } from "../lib/connection"
 import { addServerEntry } from "./servers"
-import { addUsers, getUserById, updateUser, users } from "./users"
+import { addUsers, getUserById, removeUser, updateUser, users } from "./users"
 
 // Ensure store modules are imported so their event subscriptions run
 import "./messages"
@@ -16,6 +16,7 @@ connectionService.setResolvers({
   getUserById,
   onUserAdd: addUsers,
   onUserUpdate: updateUser,
+  onUserRemove: removeUser,
   addServerEntry: (entry) => addServerEntry(entry)
 })
 

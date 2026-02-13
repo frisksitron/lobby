@@ -3,22 +3,25 @@ package ws
 import (
 	"time"
 
+	"lobby/internal/constants"
 	"lobby/internal/models"
 )
 
 // Operation codes for WebSocket messages
 type OpCode int
 
+// ProtocolVersion is the exact server/client WS protocol version.
+// Bump this only for breaking wire-contract changes.
+const ProtocolVersion = 1
+
 const (
 	// DISPATCH - Events and commands with type field
 	OpDispatch OpCode = 0
 
 	// Lifecycle ops (Server -> Client)
-	OpHello          OpCode = 1 // Sent on connection, contains heartbeat interval
+	OpHello          OpCode = 1 // Sent on connection
 	OpReady          OpCode = 2 // Sent after successful identify, contains initial state
-	OpResumed        OpCode = 3 // Reserved (resume not implemented)
-	OpInvalidSession OpCode = 4 // Session invalid, must re-identify
-	OpReconnect      OpCode = 5 // Reserved (server-initiated reconnect not implemented)
+	OpInvalidSession OpCode = 3 // Session invalid, must re-identify
 )
 
 // Event types (Server -> Client via DISPATCH)
@@ -60,25 +63,25 @@ const (
 
 // Error codes sent in EventError payloads.
 const (
-	ErrCodeAuthFailed                   = "AUTH_FAILED"
-	ErrCodeRateLimited                  = "RATE_LIMITED"
-	ErrCodeMessageTooLong               = "MESSAGE_TOO_LONG"
-	ErrCodeVoiceJoinCooldown            = "VOICE_JOIN_COOLDOWN"
-	ErrCodeVoiceStateCooldown           = "VOICE_STATE_COOLDOWN"
-	ErrCodeVoiceJoinFailed              = "VOICE_JOIN_FAILED"
-	ErrCodeVoiceNotInChannel            = "NOT_IN_VOICE"
-	ErrCodeVoiceStateInvalidTransition  = "VOICE_STATE_INVALID_TRANSITION"
-	ErrCodeVoiceNegotiationInvalidState = "VOICE_NEGOTIATION_INVALID_STATE"
-	ErrCodeVoiceNegotiationFailed       = "VOICE_NEGOTIATION_FAILED"
-	ErrCodeVoiceNegotiationTimeout      = "VOICE_NEGOTIATION_TIMEOUT"
-	ErrCodeSignalingRateLimited         = "SIGNALING_RATE_LIMITED"
+	ErrCodeAuthFailed                   = constants.ErrCodeAuthFailed
+	ErrCodeAuthExpired                  = constants.ErrCodeAuthExpired
+	ErrCodeRateLimited                  = constants.ErrCodeRateLimited
+	ErrCodeMessageTooLong               = constants.ErrCodeMessageTooLong
+	ErrCodeVoiceJoinCooldown            = constants.ErrCodeVoiceJoinCooldown
+	ErrCodeVoiceStateCooldown           = constants.ErrCodeVoiceStateCooldown
+	ErrCodeVoiceJoinFailed              = constants.ErrCodeVoiceJoinFailed
+	ErrCodeVoiceNotInChannel            = constants.ErrCodeVoiceNotInChannel
+	ErrCodeVoiceStateInvalidTransition  = constants.ErrCodeVoiceStateInvalidTransition
+	ErrCodeVoiceNegotiationInvalidState = constants.ErrCodeVoiceNegotiationInvalidState
+	ErrCodeVoiceNegotiationFailed       = constants.ErrCodeVoiceNegotiationFailed
+	ErrCodeVoiceNegotiationTimeout      = constants.ErrCodeVoiceNegotiationTimeout
+	ErrCodeSignalingRateLimited         = constants.ErrCodeSignalingRateLimited
 )
 
 type WSMessage struct {
 	Op   OpCode      `json:"op"`
 	Type string      `json:"t,omitempty"` // Event/command type (only for DISPATCH)
 	Data interface{} `json:"d,omitempty"`
-	Seq  *int64      `json:"s,omitempty"` // Sequence number (server->client DISPATCH only)
 }
 
 // Server -> Client payloads
@@ -86,9 +89,34 @@ type WSMessage struct {
 type HelloPayload struct{}
 
 type ReadyPayload struct {
-	SessionID string        `json:"session_id"`
-	User      *models.User  `json:"user"`
-	Members   []MemberState `json:"members"`
+	ProtocolVersion int           `json:"protocol_version"`
+	SessionID       string        `json:"session_id"`
+	User            *ReadyUser    `json:"user"`
+	Members         []MemberState `json:"members"`
+}
+
+type ReadyUser struct {
+	ID        string     `json:"id"`
+	Username  string     `json:"username"`
+	Email     string     `json:"email,omitempty"`
+	AvatarURL string     `json:"avatar_url,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+func NewReadyUser(user *models.User) *ReadyUser {
+	if user == nil {
+		return nil
+	}
+
+	return &ReadyUser{
+		ID:        user.ID,
+		Username:  user.Username,
+		Email:     user.Email,
+		AvatarURL: user.GetAvatarURL(),
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+	}
 }
 
 type MemberState struct {
@@ -186,8 +214,7 @@ type VoiceJoinPayload struct {
 
 // RtcReadyPayload sent when client joins voice and should start WebRTC
 type RtcReadyPayload struct {
-	Participants []string        `json:"participants"` // User IDs of other participants
-	ICEServers   []ICEServerInfo `json:"ice_servers"`
+	ICEServers []ICEServerInfo `json:"ice_servers"`
 }
 
 // ICEServerInfo for client configuration
@@ -210,8 +237,8 @@ type RtcAnswerPayload struct {
 // RtcIceCandidatePayload contains ICE candidate
 type RtcIceCandidatePayload struct {
 	Candidate     string  `json:"candidate"`
-	SDPMid        *string `json:"sdpMid,omitempty"`
-	SDPMLineIndex *uint16 `json:"sdpMLineIndex,omitempty"`
+	SDPMid        *string `json:"sdp_mid,omitempty"`
+	SDPMLineIndex *uint16 `json:"sdp_mline_index,omitempty"`
 }
 
 // VoiceStateSetPayload for mute/deafen/speaking changes
@@ -221,12 +248,12 @@ type VoiceStateSetPayload struct {
 	Speaking *bool `json:"speaking,omitempty"`
 }
 
-// UserJoinedPayload sent when a new user joins the server
+// UserJoinedPayload sent when server membership is created or restored.
 type UserJoinedPayload struct {
 	Member MemberState `json:"member"`
 }
 
-// UserLeftPayload sent when a user leaves the server (account deleted)
+// UserLeftPayload sent when a user leaves the server (account deactivated)
 type UserLeftPayload struct {
 	UserID string `json:"user_id"`
 }

@@ -6,10 +6,12 @@ export enum WSOpCode {
   // Lifecycle ops (Server -> Client)
   Hello = 1,
   Ready = 2,
-  Resumed = 3,
-  InvalidSession = 4,
-  Reconnect = 5
+  InvalidSession = 3
 }
+
+// Exact client/server WS protocol version.
+// Bump this only for breaking wire-contract changes.
+export const WS_PROTOCOL_VERSION = 1
 
 // Event types (Server -> Client via DISPATCH)
 export enum WSEventType {
@@ -53,7 +55,6 @@ export interface WSMessage<T = unknown> {
   op: WSOpCode
   t?: string // Event/command type (only for DISPATCH)
   d?: T
-  s?: number // Sequence number (server->client DISPATCH only)
 }
 
 // Server -> Client payloads
@@ -73,13 +74,15 @@ export interface MemberState {
 }
 
 export interface ReadyPayload {
+  protocol_version: number
   session_id: string
   user: {
     id: string
     username: string
     email: string
-    avatarUrl?: string
-    createdAt?: string
+    avatar_url?: string
+    created_at?: string
+    updated_at?: string
   }
   members: MemberState[]
 }
@@ -160,7 +163,6 @@ export interface ICEServerInfo {
 }
 
 export interface RtcReadyPayload {
-  participants: string[]
   ice_servers: ICEServerInfo[]
 }
 
@@ -174,8 +176,8 @@ export interface RtcAnswerPayload {
 
 export interface RtcIceCandidatePayload {
   candidate: string
-  sdpMid?: string
-  sdpMLineIndex?: number
+  sdp_mid?: string
+  sdp_mline_index?: number
 }
 
 export interface VoiceStateSetPayload {
