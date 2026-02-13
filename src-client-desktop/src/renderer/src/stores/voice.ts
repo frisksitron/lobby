@@ -50,13 +50,6 @@ let leaveInFlight = false
 // Confirmed state from server (for cooldown recovery)
 const [confirmedState, setConfirmedState] = createSignal({ muted: false, deafened: false })
 
-// Reconnection state
-const [reconnectState, setReconnectState] = createSignal({
-  wasInVoice: false,
-  muted: false,
-  deafened: false
-})
-
 function transitionVoiceLifecycle(
   next: VoiceLifecycleState,
   source: string,
@@ -366,15 +359,6 @@ function joinVoice(): void {
   wsManager.joinVoice(false, false)
 }
 
-function rejoinVoice(muted: boolean, deafened: boolean): void {
-  const userId = connectionService.getUserId()
-  if (!userId) return
-  if (!transitionVoiceLifecycle("joining", "rejoinVoice")) return
-
-  setLocalVoice({ connecting: true, inVoice: false, muted, deafened })
-  wsManager.joinVoice(muted, deafened)
-}
-
 function leaveVoice(): void {
   const lifecycle = voiceLifecycle()
   if (lifecycle !== "joining" && lifecycle !== "active") {
@@ -451,26 +435,6 @@ function toggleDeafen(): void {
   }
 }
 
-function saveVoiceStateForReconnect(): void {
-  const voiceState = localVoice()
-  if (voiceState.inVoice) {
-    setReconnectState({ wasInVoice: true, muted: voiceState.muted, deafened: voiceState.deafened })
-  }
-}
-
-function restoreVoiceAfterReconnect(): void {
-  const state = reconnectState()
-  if (state.wasInVoice) {
-    setReconnectState({ wasInVoice: false, muted: false, deafened: false })
-    rejoinVoice(state.muted, state.deafened)
-  }
-}
-
-function resetVoiceReconnectState(): void {
-  setReconnectState({ wasInVoice: false, muted: false, deafened: false })
-  transitionVoiceLifecycle("not_in_voice", "reset-reconnect", true)
-}
-
 // Subscribe to WS events
 connectionService.on("voice_state_update", handleVoiceStateUpdate)
 connectionService.on("rtc_ready", handleRtcReady)
@@ -478,9 +442,6 @@ connectionService.on("voice_speaking", handleVoiceSpeaking)
 connectionService.on("server_error", handleServerError)
 
 // Subscribe to lifecycle events
-connectionService.onLifecycle("voice_save", saveVoiceStateForReconnect)
-connectionService.onLifecycle("voice_restore", restoreVoiceAfterReconnect)
-connectionService.onLifecycle("voice_reset", resetVoiceReconnectState)
 connectionService.onLifecycle("voice_stop", stopVoice)
 
 // Settings effects — apply audio settings globally regardless of VoiceSettings mount state

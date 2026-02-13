@@ -7,7 +7,9 @@ import {
   clearSession as clearTokenSession,
   getValidToken,
   hasStoredSession,
-  setServerUrl as setTokenManagerServerUrl
+  setServerUrl as setTokenManagerServerUrl,
+  startAutoRefresh as startTokenAutoRefresh,
+  stopAutoRefresh as stopTokenAutoRefresh
 } from "../auth/token-manager"
 import { createLogger } from "../logger"
 import { clearAllAuthData, setTokens } from "../storage"
@@ -40,13 +42,7 @@ interface Session {
 }
 
 // Lifecycle event types emitted by ConnectionService
-export type LifecycleEventType =
-  | "users_clear"
-  | "typing_clear"
-  | "voice_save"
-  | "voice_restore"
-  | "voice_reset"
-  | "voice_stop"
+export type LifecycleEventType = "users_clear" | "typing_clear" | "voice_stop"
 
 interface Resolvers {
   getUserById: (userId: string) => User | undefined
@@ -205,6 +201,7 @@ class ConnectionService {
   }
 
   private setAuthExpiredState(message: string): void {
+    stopTokenAutoRefresh()
     this.setPhase("needs_auth")
     this.setConnectionDetail({
       status: "unavailable",
@@ -387,13 +384,13 @@ class ConnectionService {
 
     unsubscribes.push(
       wsManager.on("invalid_session", () => {
+        stopTokenAutoRefresh()
         this.sessionReplaced = true
       })
     )
 
     unsubscribes.push(
       wsManager.on("disconnected", () => {
-        this.emitLifecycle("voice_save")
         this.emitLifecycle("voice_stop")
         webrtcManager.stop()
 
@@ -464,6 +461,8 @@ class ConnectionService {
 
     unsubscribes.push(
       wsManager.on("connected", () => {
+        startTokenAutoRefresh()
+
         const currentSession = this.session()
         this.setPhase("connected")
         this.retry.reset()
@@ -480,7 +479,6 @@ class ConnectionService {
         })
 
         this.setConnectionVersion((v) => v + 1)
-        this.emitLifecycle("voice_restore")
 
         this.emit("connected", undefined)
       })
@@ -534,7 +532,7 @@ class ConnectionService {
   }
 
   private disconnectWS(): void {
-    this.emitLifecycle("voice_reset")
+    stopTokenAutoRefresh()
     this.emitLifecycle("voice_stop")
     webrtcManager.stop()
     for (const unsub of this.wsUnsubscribes) unsub()

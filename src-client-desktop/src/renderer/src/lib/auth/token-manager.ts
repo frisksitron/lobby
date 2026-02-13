@@ -17,6 +17,14 @@ let currentServerUrl: string | null = null
 // In-flight refresh promise for deduplication
 let refreshPromise: Promise<string> | null = null
 
+// Auto-refresh state
+let autoRefreshEnabled = false
+let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+const AUTO_REFRESH_LEAD_MS = 2 * 60 * 1000
+const AUTO_REFRESH_MIN_DELAY_MS = 5 * 1000
+const AUTO_REFRESH_RETRY_DELAY_MS = 15 * 1000
+
 // Token refresh subscribers
 type TokenRefreshCallback = (newToken: string) => void
 const refreshSubscribers = new Set<TokenRefreshCallback>()
@@ -35,6 +43,9 @@ function currentServerId(): string | null {
 
 export function setServerUrl(url: string): void {
   currentServerUrl = url
+  if (autoRefreshEnabled) {
+    void scheduleAutoRefresh()
+  }
 }
 
 export function getServerUrl(): string | null {
@@ -42,12 +53,23 @@ export function getServerUrl(): string | null {
 }
 
 export async function clearSession(): Promise<void> {
+  stopAutoRefresh()
   const serverId = currentServerId()
   refreshPromise = null
   if (serverId) {
     await clearTokens(serverId)
   }
   currentServerUrl = null
+}
+
+export function startAutoRefresh(): void {
+  autoRefreshEnabled = true
+  void scheduleAutoRefresh()
+}
+
+export function stopAutoRefresh(): void {
+  autoRefreshEnabled = false
+  clearAutoRefreshTimer()
 }
 
 export async function hasStoredSession(serverUrl: string): Promise<boolean> {
@@ -109,6 +131,11 @@ async function doRefresh(): Promise<string> {
         cb(result.accessToken)
       } catch {}
     })
+
+    if (autoRefreshEnabled) {
+      void scheduleAutoRefresh()
+    }
+
     return result.accessToken
   } catch (error) {
     // Only clear tokens when server explicitly rejected them (401/403)
@@ -119,6 +146,72 @@ async function doRefresh(): Promise<string> {
     }
     throw error
   }
+}
+
+function clearAutoRefreshTimer(): void {
+  if (autoRefreshTimer) {
+    clearTimeout(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
+}
+
+async function scheduleAutoRefresh(): Promise<void> {
+  clearAutoRefreshTimer()
+
+  if (!autoRefreshEnabled) return
+
+  const serverId = currentServerId()
+  if (!serverId) return
+
+  const tokens = await getTokens(serverId)
+  if (!autoRefreshEnabled || currentServerId() !== serverId || !tokens?.refreshToken) {
+    return
+  }
+
+  const expiresAtMs = new Date(tokens.expiresAt).getTime()
+  if (!Number.isFinite(expiresAtMs)) {
+    return
+  }
+
+  const delayMs = Math.max(
+    expiresAtMs - Date.now() - AUTO_REFRESH_LEAD_MS,
+    AUTO_REFRESH_MIN_DELAY_MS
+  )
+  autoRefreshTimer = setTimeout(() => {
+    void runAutoRefresh()
+  }, delayMs)
+}
+
+function scheduleAutoRefreshRetry(): void {
+  clearAutoRefreshTimer()
+  if (!autoRefreshEnabled) {
+    return
+  }
+
+  autoRefreshTimer = setTimeout(() => {
+    void runAutoRefresh()
+  }, AUTO_REFRESH_RETRY_DELAY_MS)
+}
+
+async function runAutoRefresh(): Promise<void> {
+  if (!autoRefreshEnabled) {
+    return
+  }
+
+  try {
+    await refreshToken()
+  } catch (error) {
+    const status = (error as { status?: number }).status
+    if (status === 401 || status === 403) {
+      stopAutoRefresh()
+      return
+    }
+
+    scheduleAutoRefreshRetry()
+    return
+  }
+
+  await scheduleAutoRefresh()
 }
 
 /**

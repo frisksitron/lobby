@@ -136,6 +136,10 @@ class WebSocketManager {
   updateToken(newToken: string): void {
     this.token = newToken
     log.info("Token updated")
+
+    if (this.state === "connected" && this.ws?.readyState === WebSocket.OPEN) {
+      this.sendIdentify()
+    }
   }
 
   /**
@@ -403,7 +407,7 @@ class WebSocketManager {
 
   private handleHello(_payload: HelloPayload): void {
     log.info("Received HELLO")
-    this.sendDispatch(WSCommandType.Identify, { token: this.token })
+    this.sendIdentify()
   }
 
   private handleReady(payload: ReadyPayload): void {
@@ -425,6 +429,15 @@ class WebSocketManager {
     this.state = "connected"
     this.emit("connected", undefined)
     this.emit("ready", payload)
+  }
+
+  private sendIdentify(): void {
+    if (!this.token) {
+      log.warn("Cannot IDENTIFY without token")
+      return
+    }
+
+    this.sendDispatch(WSCommandType.Identify, { token: this.token })
   }
 
   private handleInvalidSession(payload: InvalidSessionPayload): void {
