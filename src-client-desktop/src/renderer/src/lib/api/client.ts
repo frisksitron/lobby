@@ -55,6 +55,7 @@ export async function apiRequestCurrentServer<T>(
 export async function publicRequest<T>(serverUrl: string, endpoint: string): Promise<T> {
   const url = `${normalizeUrl(serverUrl)}${endpoint}`
   const response = await fetch(url, {
+    cache: "no-store",
     headers: { "Content-Type": "application/json" }
   })
   return handleResponse<T>(response)

@@ -35,6 +35,17 @@ export async function addServerEntry(serverInfo: {
 }): Promise<void> {
   const existing = servers().find((s) => s.id === serverInfo.id)
   if (existing) {
+    setServers((prev) =>
+      prev.map((server) =>
+        server.id === serverInfo.id
+          ? {
+              ...server,
+              name: serverInfo.name,
+              iconUrl: serverInfo.iconUrl ?? server.iconUrl
+            }
+          : server
+      )
+    )
     await window.api.servers.add(serverInfo)
     return
   }
@@ -47,12 +58,7 @@ export async function addServerEntry(serverInfo: {
     memberIds: []
   }
   setServers((prev) => [...prev, newServer])
-  await window.api.servers.add({
-    id: serverInfo.id,
-    name: serverInfo.name,
-    url: serverInfo.url,
-    iconUrl: serverInfo.iconUrl
-  })
+  await window.api.servers.add(serverInfo)
 }
 
 export async function leaveServer(serverId: string): Promise<string | null> {

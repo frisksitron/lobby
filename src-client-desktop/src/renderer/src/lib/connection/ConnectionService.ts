@@ -1,6 +1,6 @@
 import { type Accessor, batch, createSignal, type Setter } from "solid-js"
-import type { User } from "../../../../shared/types"
-import { getMe as apiGetMe } from "../api/auth"
+import type { ServerEntry, User } from "../../../../shared/types"
+import { getMe as apiGetMe, getServerInfo as apiGetServerInfo } from "../api/auth"
 import type { ServerInfo } from "../api/types"
 import { ApiError } from "../api/types"
 import {
@@ -49,7 +49,12 @@ interface Resolvers {
   onUserAdd: (users: User[]) => void
   onUserUpdate: (userId: string, updates: Partial<User>) => void
   onUserRemove: (userId: string) => void
-  addServerEntry: (entry: { id: string; name: string; url: string; email: string }) => Promise<void>
+  addServerEntry: (entry: {
+    id: string
+    name: string
+    url: string
+    email?: string
+  }) => Promise<void>
 }
 
 class ConnectionService {
@@ -577,6 +582,32 @@ class ConnectionService {
     }
   }
 
+  private async refreshServerInfo(server: ServerEntry, generation: number): Promise<void> {
+    try {
+      const info = await apiGetServerInfo(server.url)
+      if (this.connectGeneration !== generation) {
+        return
+      }
+
+      const nextName = info.name?.trim() || server.name || "Server"
+      const current = this.currentServer()
+      if (current?.id === server.id) {
+        this.setCurrentServer({ ...current, name: nextName, info })
+      }
+
+      if (nextName !== server.name) {
+        await this.resolvers?.addServerEntry({
+          id: server.id,
+          name: nextName,
+          url: server.url,
+          email: server.email
+        })
+      }
+    } catch (error) {
+      log.debug("Failed to refresh server info:", error)
+    }
+  }
+
   // Public API
 
   async connectToServer(serverId: string): Promise<boolean> {
@@ -596,6 +627,7 @@ class ConnectionService {
     this.emitLifecycle("users_clear")
     setTokenManagerServerUrl(server.url)
     this.setCurrentServer({ url: server.url, id: server.id, name: server.name })
+    void this.refreshServerInfo(server, generation)
     this.setPhase("connecting")
 
     const hasSession = await hasStoredSession(server.url)
