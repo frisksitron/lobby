@@ -8,13 +8,15 @@ import (
 )
 
 const (
-	ErrCodeAuthFailed     = constants.ErrCodeAuthFailed
-	ErrCodeAuthExpired    = constants.ErrCodeAuthExpired
-	ErrCodeRateLimited    = constants.ErrCodeRateLimited
-	ErrCodeInvalidRequest = constants.ErrCodeInvalidRequest
-	ErrCodeNotFound       = constants.ErrCodeNotFound
-	ErrCodeConflict       = constants.ErrCodeConflict
-	ErrCodeInternal       = constants.ErrCodeInternal
+	ErrCodeAuthFailed        = constants.ErrCodeAuthFailed
+	ErrCodeAuthExpired       = constants.ErrCodeAuthExpired
+	ErrCodeRateLimited       = constants.ErrCodeRateLimited
+	ErrCodeInvalidRequest    = constants.ErrCodeInvalidRequest
+	ErrCodePayloadTooLarge   = constants.ErrCodePayloadTooLarge
+	ErrCodeNotFound          = constants.ErrCodeNotFound
+	ErrCodeConflict          = constants.ErrCodeConflict
+	ErrCodeInternal          = constants.ErrCodeInternal
+	ErrCodeAttachmentInvalid = constants.ErrCodeAttachmentInvalid
 )
 
 type ErrorResponse struct {
@@ -55,6 +57,10 @@ func notFound(w http.ResponseWriter, message string) {
 
 func conflict(w http.ResponseWriter, message string) {
 	writeError(w, http.StatusConflict, ErrCodeConflict, message)
+}
+
+func payloadTooLarge(w http.ResponseWriter, message string) {
+	writeError(w, http.StatusRequestEntityTooLarge, ErrCodePayloadTooLarge, message)
 }
 
 func internalError(w http.ResponseWriter) {

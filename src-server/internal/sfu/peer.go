@@ -26,16 +26,16 @@ const (
 )
 
 type Peer struct {
-	ID           string
-	conn         *webrtc.PeerConnection
-	sfu          *SFU
-	mu           sync.RWMutex
-	state        atomic.Int32
-	wg           sync.WaitGroup
-	localTracks  map[string]*webrtc.TrackLocalStaticRTP // trackKind -> track (e.g., "audio", "video")
-	outputTracks map[string]*webrtc.RTPSender           // sourceUserID:trackKind -> sender
-	videoReceiver *webrtc.RTPReceiver                   // For PLI requests
-	videoSSRC    uint32                                 // Video track SSRC
+	ID            string
+	conn          *webrtc.PeerConnection
+	sfu           *SFU
+	mu            sync.RWMutex
+	state         atomic.Int32
+	wg            sync.WaitGroup
+	localTracks   map[string]*webrtc.TrackLocalStaticRTP // trackKind -> track (e.g., "audio", "video")
+	outputTracks  map[string]*webrtc.RTPSender           // sourceUserID:trackKind -> sender
+	videoReceiver *webrtc.RTPReceiver                    // For PLI requests
+	videoSSRC     uint32                                 // Video track SSRC
 }
 
 func NewPeer(id string, sfu *SFU) (*Peer, error) {

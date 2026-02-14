@@ -38,6 +38,12 @@ SET username = sqlc.arg(username),
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
+-- name: UpdateUserAvatarURL :execrows
+UPDATE users
+SET avatar_url = sqlc.arg(avatar_url),
+    updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
 -- name: DeactivateUser :execrows
 UPDATE users
 SET deactivated_at = sqlc.arg(deactivated_at),

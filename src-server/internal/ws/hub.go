@@ -13,6 +13,7 @@ import (
 	"lobby/internal/auth"
 	"lobby/internal/config"
 	"lobby/internal/constants"
+	"lobby/internal/db"
 	sqldb "lobby/internal/db/sqlc"
 	"lobby/internal/sfu"
 )
@@ -75,14 +76,22 @@ type Hub struct {
 	unregister    chan *Client
 	shutdown      chan struct{}
 	jwtService    *auth.JWTService
+	database      *db.DB
 	queries       *sqldb.Queries
+	baseURL       string
 	sfu           *sfu.SFU
 	sfuCfg        *config.SFUConfig
 	screenShare   *sfu.ScreenShareManager
 	mu            sync.RWMutex
 }
 
-func NewHub(jwtService *auth.JWTService, queries *sqldb.Queries, sfuCfg *config.SFUConfig) (*Hub, error) {
+func NewHub(
+	jwtService *auth.JWTService,
+	database *db.DB,
+	queries *sqldb.Queries,
+	sfuCfg *config.SFUConfig,
+	baseURL string,
+) (*Hub, error) {
 	h := &Hub{
 		clients:       make(map[*Client]bool),
 		userClients:   make(map[string]*Client),
@@ -92,7 +101,9 @@ func NewHub(jwtService *auth.JWTService, queries *sqldb.Queries, sfuCfg *config.
 		unregister:    make(chan *Client),
 		shutdown:      make(chan struct{}),
 		jwtService:    jwtService,
+		database:      database,
 		queries:       queries,
+		baseURL:       baseURL,
 		sfuCfg:        sfuCfg,
 	}
 

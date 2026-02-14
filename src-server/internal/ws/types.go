@@ -67,6 +67,7 @@ const (
 	ErrCodeAuthExpired                  = constants.ErrCodeAuthExpired
 	ErrCodeRateLimited                  = constants.ErrCodeRateLimited
 	ErrCodeMessageTooLong               = constants.ErrCodeMessageTooLong
+	ErrCodeAttachmentInvalid            = constants.ErrCodeAttachmentInvalid
 	ErrCodeVoiceJoinCooldown            = constants.ErrCodeVoiceJoinCooldown
 	ErrCodeVoiceStateCooldown           = constants.ErrCodeVoiceStateCooldown
 	ErrCodeVoiceJoinFailed              = constants.ErrCodeVoiceJoinFailed
@@ -138,11 +139,23 @@ type InvalidSessionPayload struct {
 
 // MessageCreatePayload sent when a new message is created (via DISPATCH)
 type MessageCreatePayload struct {
-	ID        string         `json:"id"`
-	Author    *MessageAuthor `json:"author"`
-	Content   string         `json:"content"`
-	CreatedAt string         `json:"created_at"`
-	Nonce     string         `json:"nonce,omitempty"` // Echo back for optimistic updates
+	ID          string              `json:"id"`
+	Author      *MessageAuthor      `json:"author"`
+	Content     string              `json:"content"`
+	Attachments []MessageAttachment `json:"attachments,omitempty"`
+	CreatedAt   string              `json:"created_at"`
+	Nonce       string              `json:"nonce,omitempty"` // Echo back for optimistic updates
+}
+
+type MessageAttachment struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	MimeType      string `json:"mime_type"`
+	Size          int64  `json:"size"`
+	URL           string `json:"url"`
+	PreviewURL    string `json:"preview_url,omitempty"`
+	PreviewWidth  int64  `json:"preview_width,omitempty"`
+	PreviewHeight int64  `json:"preview_height,omitempty"`
 }
 
 type MessageAuthor struct {
@@ -187,8 +200,9 @@ type PresenceOptions struct {
 
 // MessageSendPayload sent by client to send a message
 type MessageSendPayload struct {
-	Content string `json:"content"`
-	Nonce   string `json:"nonce,omitempty"` // Client-generated ID for tracking
+	Content       string   `json:"content"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty"`
+	Nonce         string   `json:"nonce,omitempty"` // Client-generated ID for tracking
 }
 
 // PresenceSetPayload sent by client to set presence

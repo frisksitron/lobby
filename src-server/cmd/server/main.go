@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"lobby/internal/api"
+	"lobby/internal/blob"
 	"lobby/internal/config"
 	"lobby/internal/db"
 	"lobby/internal/email"
@@ -40,9 +41,18 @@ func main() {
 	defer database.Close()
 	slog.Info("database opened", "path", cfg.Database.Path)
 
+	blobService, err := blob.NewService(cfg.Storage.BlobRoot, cfg.Storage.UploadMaxBytes)
+	if err != nil {
+		slog.Error("failed to initialize blob storage", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("blob storage initialized", "root", cfg.Storage.BlobRoot, "upload_max_bytes", cfg.Storage.UploadMaxBytes)
+
 	cleanupService := db.NewCleanupService(database.Queries())
+	blobCleanupService := blob.NewCleanupService(database.Queries(), blobService)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go cleanupService.Start(cleanupCtx)
+	go blobCleanupService.Start(cleanupCtx)
 
 	emailService := email.NewSMTPService(
 		cfg.Email.SMTP.Host,
@@ -57,6 +67,7 @@ func main() {
 		cfg,
 		database,
 		emailService,
+		blobService,
 	)
 	if err != nil {
 		slog.Error("failed to create server", "error", err)

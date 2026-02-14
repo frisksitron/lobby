@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"lobby/internal/auth"
+	"lobby/internal/blob"
 	"lobby/internal/config"
 	"lobby/internal/db"
 	"lobby/internal/email"
@@ -26,8 +28,14 @@ func NewServer(
 	cfg *config.Config,
 	database *db.DB,
 	emailService *email.SMTPService,
+	blobService *blob.Service,
 ) (*Server, error) {
+	if blobService == nil {
+		return nil, fmt.Errorf("blob service is required")
+	}
+
 	queries := database.Queries()
+	uploadRequestLimitBytes := cfg.Storage.UploadMaxBytes + (1 << 20) // include multipart envelope overhead
 
 	magicCodeLimiter := NewRateLimiter(5, time.Minute)
 	verifyLimiter := NewRateLimiter(5, time.Minute)
@@ -40,7 +48,7 @@ func NewServer(
 	)
 	magicService := auth.NewMagicCodeService(cfg.Auth.MagicCodeTTL)
 
-	hub, err := ws.NewHub(jwtService, queries, &cfg.SFU)
+	hub, err := ws.NewHub(jwtService, database, queries, &cfg.SFU, cfg.Server.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("initializing hub: %w", err)
 	}
@@ -56,8 +64,23 @@ func NewServer(
 		hub,
 	)
 	userHandler := NewUserHandler(queries, hub)
-	serverInfoHandler := NewServerInfoHandler(cfg.Server.Name)
-	messageHandler := NewMessageHandler(queries)
+	serverInfoHandler := NewServerInfoHandler(
+		cfg.Server.Name,
+		cfg.Server.BaseURL,
+		cfg.Storage.UploadMaxBytes,
+		queries,
+	)
+	messageHandler := NewMessageHandler(queries, cfg.Server.BaseURL)
+	uploadHandler := NewUploadHandler(
+		database,
+		queries,
+		blobService,
+		hub,
+		cfg.Server.Name,
+		cfg.Server.BaseURL,
+		uploadRequestLimitBytes,
+	)
+	mediaHandler := NewMediaHandler(queries, blobService)
 	healthHandler := NewHealthHandler(database)
 
 	authMiddleware := NewAuthMiddleware(jwtService, queries)
@@ -75,12 +98,21 @@ func NewServer(
 	r.Use(securityHeadersMiddleware)
 
 	r.Get("/health", healthHandler.Check)
+	r.Get("/media/{blobID}/preview", mediaHandler.GetBlobPreview)
+	r.Get("/media/{blobID}", mediaHandler.GetBlob)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(maxBodySizeMiddleware(1 << 20)) // 1 MB
 		r.Get("/server/info", serverInfoHandler.GetInfo)
 
+		r.Route("/server", func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(authMiddleware.RequireAuth)
+				r.Post("/image", uploadHandler.UploadServerImage)
+			})
+		})
+
 		r.Route("/auth", func(r chi.Router) {
+			r.Use(maxBodySizeMiddleware(1 << 20)) // 1 MB
 			r.With(RateLimitMiddleware(magicCodeLimiter, ipResolver)).Post("/login/magic-code", authHandler.RequestMagicCode)
 			r.With(RateLimitMiddleware(verifyLimiter, ipResolver)).Post("/login/magic-code/verify", authHandler.VerifyMagicCode)
 			r.With(RateLimitMiddleware(verifyLimiter, ipResolver)).Post("/register", authHandler.Register)
@@ -95,13 +127,19 @@ func NewServer(
 		r.Route("/users", func(r chi.Router) {
 			r.Use(authMiddleware.RequireAuth)
 			r.Get("/me", userHandler.GetMe)
-			r.Patch("/me", userHandler.UpdateMe)
+			r.Post("/me/avatar", uploadHandler.UploadAvatar)
+			r.With(maxBodySizeMiddleware(1<<20)).Patch("/me", userHandler.UpdateMe)
 			r.Delete("/me", userHandler.LeaveMe)
 		})
 
 		r.Route("/messages", func(r chi.Router) {
 			r.Use(authMiddleware.RequireAuth)
 			r.Get("/", messageHandler.GetHistory)
+		})
+
+		r.Route("/uploads", func(r chi.Router) {
+			r.Use(authMiddleware.RequireAuth)
+			r.Post("/chat", uploadHandler.UploadChatAttachment)
 		})
 	})
 
@@ -150,7 +188,11 @@ func maxBodySizeMiddleware(maxBytes int64) func(http.Handler) http.Handler {
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
+		if strings.HasPrefix(r.URL.Path, "/media/") {
+			w.Header().Del("X-Frame-Options")
+		} else {
+			w.Header().Set("X-Frame-Options", "DENY")
+		}
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"lobby/internal/constants"
 	"lobby/internal/db"
 	sqldb "lobby/internal/db/sqlc"
+	"lobby/internal/mediaurl"
 	"lobby/internal/models"
 	"lobby/internal/sfu"
 )
@@ -641,11 +643,11 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 	}
 
 	content := data.Content
-	if content == "" {
+	attachmentIDs := normalizeAttachmentIDs(data.AttachmentIDs)
+	nonce := data.Nonce
+	if content == "" && len(attachmentIDs) == 0 {
 		return
 	}
-
-	nonce := data.Nonce
 
 	if utf8.RuneCountInString(content) > maxMessageContentLength {
 		c.send <- &WSMessage{
@@ -680,8 +682,10 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 		UserID: c.user.ID,
 	}, c)
 
-	content = htmlPolicy.Sanitize(content)
-	if content == "" {
+	if content != "" {
+		content = htmlPolicy.Sanitize(content)
+	}
+	if content == "" && len(attachmentIDs) == 0 {
 		return
 	}
 
@@ -691,7 +695,17 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 		return
 	}
 	createdAt := time.Now().UTC()
-	err = c.hub.queries.CreateMessage(context.Background(), sqldb.CreateMessageParams{
+
+	tx, err := c.hub.database.BeginTx(context.Background(), nil)
+	if err != nil {
+		slog.Error("error starting message transaction", "component", "ws", "error", err)
+		return
+	}
+	defer tx.Rollback()
+
+	qtx := c.hub.queries.WithTx(tx)
+
+	err = qtx.CreateMessage(context.Background(), sqldb.CreateMessageParams{
 		ID:        messageID,
 		AuthorID:  c.user.ID,
 		Content:   content,
@@ -702,6 +716,66 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 		return
 	}
 
+	attachmentsPayload := make([]MessageAttachment, 0, len(attachmentIDs))
+	if len(attachmentIDs) > 0 {
+		messageIDRef := &messageID
+		rowsAffected, claimErr := qtx.ClaimChatBlobsForMessage(context.Background(), sqldb.ClaimChatBlobsForMessageParams{
+			MessageID:  messageIDRef,
+			ClaimedAt:  &createdAt,
+			UploadedBy: c.user.ID,
+			Now:        &createdAt,
+			BlobIds:    attachmentIDs,
+		})
+		if claimErr != nil {
+			slog.Error("error claiming message attachments", "component", "ws", "error", claimErr)
+			return
+		}
+		if rowsAffected != int64(len(attachmentIDs)) {
+			c.send <- &WSMessage{
+				Op:   OpDispatch,
+				Type: EventError,
+				Data: ErrorPayload{
+					Code:    ErrCodeAttachmentInvalid,
+					Message: "One or more attachments are no longer available",
+					Nonce:   nonce,
+				},
+			}
+			return
+		}
+
+		dbAttachments, listErr := qtx.ListMessageAttachments(context.Background(), messageIDRef)
+		if listErr != nil {
+			slog.Error("error loading message attachments", "component", "ws", "error", listErr)
+			return
+		}
+
+		attachmentsPayload = make([]MessageAttachment, 0, len(dbAttachments))
+		for _, attachment := range dbAttachments {
+			mapped := MessageAttachment{
+				ID:       attachment.ID,
+				Name:     attachment.OriginalName,
+				MimeType: attachment.MimeType,
+				Size:     attachment.SizeBytes,
+				URL:      mediaurl.Blob(c.hub.baseURL, attachment.ID),
+			}
+			if attachment.PreviewStoragePath != nil {
+				mapped.PreviewURL = mediaurl.BlobPreview(c.hub.baseURL, attachment.ID)
+			}
+			if attachment.PreviewWidth != nil {
+				mapped.PreviewWidth = *attachment.PreviewWidth
+			}
+			if attachment.PreviewHeight != nil {
+				mapped.PreviewHeight = *attachment.PreviewHeight
+			}
+			attachmentsPayload = append(attachmentsPayload, mapped)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("error committing message transaction", "component", "ws", "error", err)
+		return
+	}
+
 	c.hub.BroadcastDispatch(EventMessageCreate, MessageCreatePayload{
 		ID: messageID,
 		Author: &MessageAuthor{
@@ -709,10 +783,33 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 			Username: c.user.Username,
 			Avatar:   c.user.GetAvatarURL(),
 		},
-		Content:   content,
-		CreatedAt: createdAt.Format(time.RFC3339Nano),
-		Nonce:     nonce,
+		Content:     content,
+		Attachments: attachmentsPayload,
+		CreatedAt:   createdAt.Format(time.RFC3339Nano),
+		Nonce:       nonce,
 	})
+}
+
+func normalizeAttachmentIDs(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, value := range raw {
+		id := strings.TrimSpace(value)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+
+	return result
 }
 
 func (c *Client) handlePresenceSet(msg *WSMessage) {

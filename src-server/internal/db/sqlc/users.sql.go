@@ -210,6 +210,27 @@ func (q *Queries) ReactivateUser(ctx context.Context, arg ReactivateUserParams) 
 	return result.RowsAffected()
 }
 
+const updateUserAvatarURL = `-- name: UpdateUserAvatarURL :execrows
+UPDATE users
+SET avatar_url = ?1,
+    updated_at = ?2
+WHERE id = ?3
+`
+
+type UpdateUserAvatarURLParams struct {
+	AvatarUrl *string
+	UpdatedAt *time.Time
+	ID        string
+}
+
+func (q *Queries) UpdateUserAvatarURL(ctx context.Context, arg UpdateUserAvatarURLParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateUserAvatarURL, arg.AvatarUrl, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateUsername = `-- name: UpdateUsername :execrows
 UPDATE users
 SET username = ?1,
