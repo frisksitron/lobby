@@ -2,24 +2,23 @@ import { A, useParams } from "@solidjs/router"
 import { type Component, Show } from "solid-js"
 import AboutSettings from "../components/settings/AboutSettings"
 import AccountSettings from "../components/settings/AccountSettings"
+import ServerSettings from "../components/settings/ServerSettings"
 import ThemeSettings from "../components/settings/ThemeSettings"
 import VoiceSettings from "../components/settings/VoiceSettings"
+import { isSettingsTab, SETTINGS_TABS } from "../lib/constants/settings"
 import PanelLayout from "../components/shared/PanelLayout"
 import SidePanel from "../components/shared/SidePanel"
 import Toggle from "../components/shared/Toggle"
 import { useSettings } from "../stores/settings"
 
-const TABS = [
-  { id: "account", label: "Account" },
-  { id: "voice", label: "Voice" },
-  { id: "appearance", label: "Appearance" },
-  { id: "about", label: "About" }
-]
-
 const SettingsView: Component = () => {
   const params = useParams()
-  const activeTab = () => params.tab || "account"
   const { settings, updateSetting, isLoading } = useSettings()
+
+  const activeTab = () => {
+    if (isSettingsTab(params.tab)) return params.tab
+    return isSettingsTab(settings().lastSettingsTab) ? settings().lastSettingsTab : "account"
+  }
 
   return (
     <PanelLayout
@@ -29,9 +28,14 @@ const SettingsView: Component = () => {
             <h4 class="text-xs font-medium text-text-muted px-2 pb-1">Settings</h4>
 
             <nav class="space-y-0.5">
-              {TABS.map((tab) => (
+              {SETTINGS_TABS.map((tab) => (
                 <A
                   href={`/settings/${tab.id}`}
+                  onClick={() => {
+                    if (settings().lastSettingsTab !== tab.id) {
+                      void updateSetting("lastSettingsTab", tab.id)
+                    }
+                  }}
                   class={`block px-2 py-1.5 rounded-md text-sm font-medium transition-colors ${
                     activeTab() === tab.id
                       ? "bg-surface-elevated text-text-primary"
@@ -50,6 +54,9 @@ const SettingsView: Component = () => {
       <div class="max-w-2xl space-y-4 py-6 pb-32">
         <Show when={activeTab() === "account"}>
           <AccountSettings />
+        </Show>
+        <Show when={activeTab() === "server"}>
+          <ServerSettings />
         </Show>
         <Show when={activeTab() === "voice"}>
           <VoiceSettings />

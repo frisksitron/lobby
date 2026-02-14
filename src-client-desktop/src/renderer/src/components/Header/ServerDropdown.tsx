@@ -1,24 +1,39 @@
 import { A, useNavigate } from "@solidjs/router"
 import { TbOutlineCheck, TbOutlineChevronDown, TbOutlinePlus } from "solid-icons/tb"
-import { type Component, For } from "solid-js"
+import { type Component, For, Show } from "solid-js"
 import { useConnection } from "../../stores/connection"
 import { useServers } from "../../stores/servers"
 import { useTheme } from "../../stores/theme"
 import { useUI } from "../../stores/ui"
 import { useVoice } from "../../stores/voice"
 
-const ServerIcon: Component<{ name: string; size?: "sm" | "default" }> = (props) => {
+const ServerIcon: Component<{ name: string; iconUrl?: string; size?: "sm" | "default" }> = (
+  props
+) => {
   const { getAvatarColor } = useTheme()
   const initial = () => (props.name?.[0] ?? "?").toUpperCase()
   const sizeClass = () => (props.size === "sm" ? "w-6 h-6 text-[10px]" : "w-8 h-8 text-xs")
 
   return (
-    <div
-      class={`${sizeClass()} flex-shrink-0 flex items-center justify-center rounded-full font-semibold text-white`}
-      style={{ "background-color": getAvatarColor(props.name) }}
+    <Show
+      when={props.iconUrl}
+      fallback={
+        <div
+          class={`${sizeClass()} flex-shrink-0 flex items-center justify-center rounded-full font-semibold text-white`}
+          style={{ "background-color": getAvatarColor(props.name) }}
+        >
+          {initial()}
+        </div>
+      }
     >
-      {initial()}
-    </div>
+      {(iconUrl) => (
+        <img
+          src={iconUrl()}
+          alt={`${props.name} icon`}
+          class={`${sizeClass()} flex-shrink-0 rounded-full object-cover`}
+        />
+      )}
+    </Show>
   )
 }
 
@@ -72,7 +87,11 @@ const ServerDropdown: Component = () => {
         }}
         class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-elevated/80 transition-colors max-w-72 cursor-pointer"
       >
-        <ServerIcon name={activeServer()?.name ?? "?"} size="sm" />
+        <ServerIcon
+          name={activeServer()?.name ?? "?"}
+          iconUrl={activeServer()?.iconUrl}
+          size="sm"
+        />
         <span class="font-semibold text-sm text-text-primary truncate">
           {activeServer()?.name || "Select Server"}
         </span>
@@ -100,7 +119,7 @@ const ServerDropdown: Component = () => {
                       : "text-text-secondary hover:text-text-primary hover:bg-surface"
                   }`}
                 >
-                  <ServerIcon name={server.name} />
+                  <ServerIcon name={server.name} iconUrl={server.iconUrl} />
                   <span
                     class={`flex-1 truncate text-sm font-medium ${
                       isActive() ? "text-text-primary" : ""

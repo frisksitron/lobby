@@ -1,6 +1,8 @@
 import { useLocation, useNavigate } from "@solidjs/router"
 import { TbOutlineAlertTriangle, TbOutlineSettings, TbOutlineX } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, onCleanup, Show } from "solid-js"
+import { DEFAULT_SETTINGS_TAB, isSettingsTab } from "../../lib/constants/settings"
+import { useSettings } from "../../stores/settings"
 import { useServers } from "../../stores/servers"
 import { useStatus } from "../../stores/status"
 import ButtonWithIcon from "../shared/ButtonWithIcon"
@@ -14,9 +16,32 @@ const Header: Component = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const { activeServerId } = useServers()
+  const { settings, updateSetting } = useSettings()
   const { hasActiveIssues } = useStatus()
   const isOnSettings = () => location.pathname.startsWith("/settings")
   const [statusPanelOpen, setStatusPanelOpen] = createSignal(false)
+
+  const rememberedSettingsTab = () =>
+    isSettingsTab(settings().lastSettingsTab) ? settings().lastSettingsTab : DEFAULT_SETTINGS_TAB
+
+  const currentSettingsTab = () => {
+    if (!isOnSettings()) return null
+    const [, , tab] = location.pathname.split("/")
+    return isSettingsTab(tab) ? tab : null
+  }
+
+  const handleSettingsClick = () => {
+    if (isOnSettings()) {
+      const tab = currentSettingsTab()
+      if (tab && settings().lastSettingsTab !== tab) {
+        void updateSetting("lastSettingsTab", tab)
+      }
+      navigate(`/server/${activeServerId()}`)
+      return
+    }
+
+    navigate(`/settings/${rememberedSettingsTab()}`)
+  }
 
   // Close panel when clicking outside
   const handleClickOutside = (e: MouseEvent) => {
@@ -52,7 +77,7 @@ const Header: Component = () => {
         </Show>
         <button
           type="button"
-          onClick={() => navigate(isOnSettings() ? `/server/${activeServerId()}` : "/settings")}
+          onClick={handleSettingsClick}
           class={`${linkClass} ${isOnSettings() ? "bg-surface-elevated text-text-primary" : ""}`}
           title="Settings"
         >
