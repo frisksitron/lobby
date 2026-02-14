@@ -203,7 +203,6 @@ const AccountSettings: Component = () => {
       </section>
 
       <section>
-        <h3 class="text-xs font-semibold text-text-secondary uppercase mb-3">Server</h3>
         <div>
           <h4 class="text-xs font-semibold text-error uppercase mb-2">Danger Zone</h4>
           <Button variant="danger" onClick={handleLeaveServer}>

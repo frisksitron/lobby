@@ -129,7 +129,12 @@ func (h *UploadHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	defer cleanup()
 	defer file.Close()
 
-	stored, err := h.blobs.Save(r.Context(), blob.KindAvatar, fileHeader.Filename, file)
+	normalized, err := blob.NormalizeStaticImage(file, blob.DefaultProfileImageMaxEdge, blob.DefaultProfileJPEGQuality)
+	if !handleImageNormalizeError(w, err) {
+		return
+	}
+
+	stored, err := h.blobs.Save(r.Context(), blob.KindAvatar, fileHeader.Filename, bytes.NewReader(normalized.Data))
 	if !handleBlobSaveError(w, err) {
 		return
 	}
@@ -235,7 +240,17 @@ func (h *UploadHandler) UploadServerImage(w http.ResponseWriter, r *http.Request
 	defer cleanup()
 	defer file.Close()
 
-	stored, err := h.blobs.Save(r.Context(), blob.KindServerImage, fileHeader.Filename, file)
+	normalized, err := blob.NormalizeStaticImage(file, blob.DefaultProfileImageMaxEdge, blob.DefaultProfileJPEGQuality)
+	if !handleImageNormalizeError(w, err) {
+		return
+	}
+
+	stored, err := h.blobs.Save(
+		r.Context(),
+		blob.KindServerImage,
+		fileHeader.Filename,
+		bytes.NewReader(normalized.Data),
+	)
 	if !handleBlobSaveError(w, err) {
 		return
 	}
@@ -478,6 +493,21 @@ func handleBlobSaveError(w http.ResponseWriter, err error) bool {
 	}
 
 	slog.Error("error saving blob", "error", err)
+	internalError(w)
+	return false
+}
+
+func handleImageNormalizeError(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return true
+	}
+
+	if errors.Is(err, blob.ErrInvalidImage) {
+		badRequest(w, "Invalid image file")
+		return false
+	}
+
+	slog.Error("error normalizing image", "error", err)
 	internalError(w)
 	return false
 }

@@ -7,6 +7,8 @@ import { formatShortTime, formatTimestamp } from "./messageTime"
 interface MessageRowCozyProps {
   message: MessageType
   isFirstInGroup: boolean
+  authorName: string
+  authorAvatarUrl?: string
   authorStatus?: User["status"]
 }
 
@@ -32,15 +34,15 @@ const MessageRowCozy: Component<MessageRowCozyProps> = (props) => {
       <div class="flex items-start gap-4">
         <div class="flex justify-center w-12 shrink-0">
           <Avatar
-            name={props.message.authorName}
-            imageUrl={props.message.authorAvatarUrl}
+            name={props.authorName}
+            imageUrl={props.authorAvatarUrl}
             status={props.authorStatus}
             size="md"
           />
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-baseline gap-2">
-            <span class="text-sm font-semibold text-text-primary">{props.message.authorName}</span>
+            <span class="text-sm font-semibold text-text-primary">{props.authorName}</span>
             <span class="text-xs text-text-secondary">
               {formatTimestamp(props.message.timestamp)}
             </span>

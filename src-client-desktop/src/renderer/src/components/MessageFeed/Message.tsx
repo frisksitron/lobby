@@ -19,7 +19,10 @@ const Message: Component<MessageProps> = (props) => {
   const compactMode = createMemo(() => settings().compactMode)
   const isFirstInGroup = createMemo(() => props.isFirstInGroup ?? true)
   const isLastInGroup = createMemo(() => props.isLastInGroup ?? true)
-  const authorStatus = createMemo(() => getUserById(props.message.authorId)?.status)
+  const author = createMemo(() => getUserById(props.message.authorId))
+  const authorName = createMemo(() => author()?.username || props.message.authorName)
+  const authorAvatarUrl = createMemo(() => author()?.avatarUrl ?? props.message.authorAvatarUrl)
+  const authorStatus = createMemo(() => author()?.status)
 
   return (
     <MessageRowFrame
@@ -33,11 +36,17 @@ const Message: Component<MessageProps> = (props) => {
           <MessageRowCozy
             message={props.message}
             isFirstInGroup={isFirstInGroup()}
+            authorName={authorName()}
+            authorAvatarUrl={authorAvatarUrl()}
             authorStatus={authorStatus()}
           />
         }
       >
-        <MessageRowCompact message={props.message} isFirstInGroup={isFirstInGroup()} />
+        <MessageRowCompact
+          message={props.message}
+          isFirstInGroup={isFirstInGroup()}
+          authorName={authorName()}
+        />
       </Show>
     </MessageRowFrame>
   )

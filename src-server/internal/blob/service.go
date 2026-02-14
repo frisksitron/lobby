@@ -29,6 +29,7 @@ var (
 	ErrDisallowedType = errors.New("disallowed blob mime type")
 	ErrExecutableFile = errors.New("executable files are not allowed")
 	ErrInvalidPath    = errors.New("invalid blob path")
+	ErrInvalidImage   = errors.New("invalid image data")
 )
 
 type StoredBlob struct {

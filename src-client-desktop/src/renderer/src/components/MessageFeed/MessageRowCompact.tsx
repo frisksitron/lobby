@@ -6,6 +6,7 @@ import { formatTimestamp } from "./messageTime"
 interface MessageRowCompactProps {
   message: MessageType
   isFirstInGroup: boolean
+  authorName: string
 }
 
 const MessageRowCompact: Component<MessageRowCompactProps> = (props) => {
@@ -26,7 +27,7 @@ const MessageRowCompact: Component<MessageRowCompactProps> = (props) => {
     >
       <div class="w-full min-w-0 pr-3">
         <div class="flex items-baseline gap-2">
-          <span class="text-sm font-semibold text-text-primary">{props.message.authorName}</span>
+          <span class="text-sm font-semibold text-text-primary">{props.authorName}</span>
           <span class="w-12 shrink-0 text-xs text-text-secondary whitespace-nowrap">
             {formatTimestamp(props.message.timestamp)}
           </span>
