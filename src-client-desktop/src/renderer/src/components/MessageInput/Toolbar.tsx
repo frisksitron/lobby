@@ -8,6 +8,7 @@ import {
   TbOutlineLink,
   TbOutlineList,
   TbOutlineListNumbers,
+  TbOutlinePlus,
   TbOutlineSourceCode,
   TbOutlineStrikethrough
 } from "solid-icons/tb"
@@ -16,6 +17,7 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js"
 
 interface ToolbarProps {
   disabled: Accessor<boolean>
+  onAttachClick?: () => void
 }
 
 const Toolbar: Component<ToolbarProps> = (props) => {
@@ -81,6 +83,17 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   return (
     <Show when={!props.disabled()}>
       <div class="flex items-center gap-0.5 px-1 py-1">
+        <ToolbarButton
+          active={() => false}
+          disabled={() => props.disabled() || !props.onAttachClick}
+          onClick={() => props.onAttachClick?.()}
+          title="Attach Files"
+        >
+          <TbOutlinePlus size={16} />
+        </ToolbarButton>
+
+        <div class="w-px h-4 bg-border mx-1" />
+
         <ToolbarButton
           active={() => getEditor().marks.bold.isActive()}
           disabled={() => !getEditor().commands.toggleBold.canExec()}

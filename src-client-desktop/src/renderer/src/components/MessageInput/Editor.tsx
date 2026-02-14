@@ -96,8 +96,10 @@ function definePlainTextLinkPaste() {
 interface EditorProps {
   placeholder: string
   disabled: boolean
-  onSend: (html: string) => void
+  allowEmptySend: boolean
+  onSend: (html: string) => boolean
   onTyping: () => void
+  onAttachClick?: () => void
 }
 
 const Editor: Component<EditorProps> = (props) => {
@@ -112,8 +114,10 @@ const Editor: Component<EditorProps> = (props) => {
     <ProseKit editor={editor}>
       <EditorInner
         disabled={() => props.disabled}
+        allowEmptySend={() => props.allowEmptySend}
         onSend={props.onSend}
         onTyping={props.onTyping}
+        onAttachClick={props.onAttachClick}
       />
     </ProseKit>
   )
@@ -121,8 +125,10 @@ const Editor: Component<EditorProps> = (props) => {
 
 interface EditorInnerProps {
   disabled: Accessor<boolean>
-  onSend: (html: string) => void
+  allowEmptySend: Accessor<boolean>
+  onSend: (html: string) => boolean
   onTyping: () => void
+  onAttachClick?: () => void
 }
 
 const EditorInner: Component<EditorInnerProps> = (props) => {
@@ -140,13 +146,24 @@ const EditorInner: Component<EditorInnerProps> = (props) => {
       if (editor.nodes.list.isActive()) return false
 
       const text = editor.state.doc.textContent.trim()
-      if (!text) return true
+      if (!text) {
+        if (!props.allowEmptySend()) {
+          return true
+        }
+        const sent = props.onSend("")
+        if (sent) {
+          editor.setContent("")
+        }
+        return true
+      }
 
       const html = editor.getDocHTML()
       if (html.length > MAX_CONTENT_LENGTH) return true
 
-      props.onSend(html)
-      editor.setContent("")
+      const sent = props.onSend(html)
+      if (sent) {
+        editor.setContent("")
+      }
       return true
     },
     ArrowUp: (_state, _dispatch, view) => {
@@ -197,7 +214,7 @@ const EditorInner: Component<EditorInnerProps> = (props) => {
 
   return (
     <div class="prose-editor" classList={{ "opacity-50 cursor-not-allowed": props.disabled() }}>
-      <Toolbar disabled={props.disabled} />
+      <Toolbar disabled={props.disabled} onAttachClick={props.onAttachClick} />
       <div
         ref={(el) => getEditor().mount(el)}
         class="bg-surface-elevated ring-1 ring-border rounded px-4 py-1.5 leading-6 text-text-primary max-h-[200px] overflow-y-auto focus-within:ring-accent transition-colors"
