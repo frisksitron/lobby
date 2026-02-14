@@ -49,6 +49,8 @@ docker compose -f /opt/lobby/docker-compose.prod.yml --env-file /opt/lobby/.env 
 | `LOBBY_IMAGE_TAG` | required | Server image tag (use `latest` for the default path) |
 | `LOBBY_JWT_SECRET` | required | Minimum 32 characters |
 | `LOBBY_SERVER_BASE_URL` | required | Public HTTPS base URL, usually `https://<domain>` |
+| `LOBBY_BLOB_ROOT` | optional | Blob storage root inside container, defaults to `/data/blobs` |
+| `LOBBY_UPLOAD_MAX_BYTES` | optional | Global upload size cap in bytes, defaults to `10485760` (10 MiB) |
 | `LOBBY_SFU_PUBLIC_IP` | required | Server public IPv4 advertised for media |
 | `LOBBY_SMTP_FROM` | required | Sender email address |
 | `LOBBY_SMTP_HOST` | required | SMTP host |
@@ -66,6 +68,7 @@ See `src-server/deploy/.env.example` for full config surface.
 ## Persistence Requirements
 
 - Persistent writable storage for `/data/lobby.db`
+- Persistent writable storage for `/data/blobs`
 - SQLite runs in WAL mode; backup must include `lobby.db`, `lobby.db-wal`, and `lobby.db-shm` when the process is live
 
 ## Runtime Health Expectations

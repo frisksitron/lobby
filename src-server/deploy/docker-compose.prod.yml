@@ -25,6 +25,8 @@ services:
     env_file: .env
     environment:
       LOBBY_DATABASE_PATH: /data/lobby.db
+      LOBBY_BLOB_ROOT: ${LOBBY_BLOB_ROOT:-/data/blobs}
+      LOBBY_UPLOAD_MAX_BYTES: ${LOBBY_UPLOAD_MAX_BYTES:-10485760}
       LOBBY_TRUSTED_PROXY_CIDRS: 172.30.0.10/32
     volumes:
       - lobby-data:/data

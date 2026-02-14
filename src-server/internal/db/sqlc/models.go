@@ -8,6 +8,25 @@ import (
 	"time"
 )
 
+type Blob struct {
+	ID                 string
+	Kind               string
+	UploadedBy         string
+	StoragePath        string
+	MimeType           string
+	SizeBytes          int64
+	OriginalName       string
+	MessageID          *string
+	ClaimedAt          *time.Time
+	ExpiresAt          *time.Time
+	PreviewStoragePath *string
+	PreviewMimeType    *string
+	PreviewSizeBytes   *int64
+	PreviewWidth       *int64
+	PreviewHeight      *int64
+	CreatedAt          time.Time
+}
+
 type MagicCode struct {
 	ID        string
 	Email     string
@@ -42,6 +61,12 @@ type RegistrationToken struct {
 	ExpiresAt time.Time
 	UsedAt    *time.Time
 	CreatedAt time.Time
+}
+
+type ServerSetting struct {
+	ID         int64
+	IconBlobID *string
+	UpdatedAt  time.Time
 }
 
 type User struct {

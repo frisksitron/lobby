@@ -16,6 +16,7 @@ import (
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
+	Storage  StorageConfig  `yaml:"storage"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Email    EmailConfig    `yaml:"email"`
 	SFU      SFUConfig      `yaml:"sfu"`
@@ -53,6 +54,11 @@ type WebSocketConfig struct {
 
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
+}
+
+type StorageConfig struct {
+	BlobRoot       string `yaml:"blob_root"`
+	UploadMaxBytes int64  `yaml:"upload_max_bytes"`
 }
 
 type AuthConfig struct {
@@ -122,6 +128,14 @@ func envUint16(key string, dst *uint16) {
 	}
 }
 
+func envInt64(key string, dst *int64) {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			*dst = i
+		}
+	}
+}
+
 func envDuration(key string, dst *time.Duration) {
 	if v := os.Getenv(key); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -156,6 +170,10 @@ func (c *Config) applyEnvOverrides() {
 
 	// Database
 	envString("LOBBY_DATABASE_PATH", &c.Database.Path)
+
+	// Storage
+	envString("LOBBY_BLOB_ROOT", &c.Storage.BlobRoot)
+	envInt64("LOBBY_UPLOAD_MAX_BYTES", &c.Storage.UploadMaxBytes)
 
 	// Auth
 	envString("LOBBY_JWT_SECRET", &c.Auth.JWTSecret)
@@ -212,6 +230,9 @@ func (c *Config) validate() error {
 	}
 	if c.Server.WebSocket.UnauthenticatedTimeout < 0 {
 		return fmt.Errorf("server.websocket.unauthenticated_timeout must be >= 0")
+	}
+	if c.Storage.UploadMaxBytes < 0 {
+		return fmt.Errorf("storage.upload_max_bytes must be >= 0")
 	}
 	for _, origin := range c.Server.WebSocket.AllowedOrigins {
 		if origin == "null" {
@@ -276,6 +297,12 @@ func (c *Config) setDefaults() {
 	}
 	if c.Database.Path == "" {
 		c.Database.Path = "./data/lobby.db"
+	}
+	if c.Storage.BlobRoot == "" {
+		c.Storage.BlobRoot = "./data/blobs"
+	}
+	if c.Storage.UploadMaxBytes == 0 {
+		c.Storage.UploadMaxBytes = 10 * 1024 * 1024
 	}
 	if c.Auth.AccessTokenTTL == 0 {
 		c.Auth.AccessTokenTTL = 15 * time.Minute

@@ -15,6 +15,10 @@ server:
 database:
   path: "./data/lobby.db"
 
+storage:
+  blob_root: "./data/blobs"
+  upload_max_bytes: 10485760
+
 auth:
   jwt_secret: ""  # Required - generate with: openssl rand -base64 32
   access_token_ttl: 15m

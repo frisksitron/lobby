@@ -15,10 +15,11 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /build/lobby /usr/local/bin/lobby
 
-RUN mkdir -p /data
+RUN mkdir -p /data /data/blobs
 VOLUME /data
 
 ENV LOBBY_DATABASE_PATH=/data/lobby.db
+ENV LOBBY_BLOB_ROOT=/data/blobs
 
 EXPOSE 8080/tcp
 EXPOSE 50000-50100/udp
