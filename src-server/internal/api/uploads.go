@@ -293,13 +293,19 @@ func (h *UploadHandler) UploadServerImage(w http.ResponseWriter, r *http.Request
 	}
 	cleanupStoredFile = false
 
+	iconURL := mediaurl.Blob(h.baseURL, stored.ID)
+	h.hub.BroadcastDispatch(ws.EventServerUpdate, ws.ServerUpdatePayload{
+		Name:    h.serverName,
+		IconURL: iconURL,
+	})
+
 	if oldSettings.IconBlobID != nil && *oldSettings.IconBlobID != "" && *oldSettings.IconBlobID != stored.ID {
 		h.deleteBlobByIDBestEffort(r.Context(), *oldSettings.IconBlobID, string(blob.KindServerImage))
 	}
 
 	writeJSON(w, http.StatusOK, ServerInfoResponse{
 		Name:           h.serverName,
-		IconURL:        mediaurl.Blob(h.baseURL, stored.ID),
+		IconURL:        iconURL,
 		UploadMaxBytes: h.blobs.MaxUploadBytes(),
 	})
 }

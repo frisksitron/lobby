@@ -62,6 +62,7 @@ Data layer paths:
 - Handshake flow is `HELLO -> IDENTIFY -> READY`.
 - Re-`IDENTIFY` is allowed for token refresh only when the token resolves to the same user.
 - `MESSAGE_SEND` / `MESSAGE_CREATE` attachment fields must stay mirrored server/client.
+- `SERVER_UPDATE` payloads (for server metadata like icon changes) must stay mirrored server/client.
 
 ## Before Finishing
 

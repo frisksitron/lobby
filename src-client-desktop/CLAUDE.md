@@ -53,6 +53,7 @@ When WebSocket payloads change, update both sides together:
 - Server: `../src-server/internal/ws/types.go`
 - Client: `src/renderer/src/lib/ws/types.ts`
 - Message attachment payload changes must update both files in the same change.
+- `SERVER_UPDATE` payload changes must update both files in the same change.
 
 ## After Editing
 

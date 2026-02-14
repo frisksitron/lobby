@@ -14,6 +14,7 @@ import {
   type RtcOfferPayload,
   type RtcReadyPayload,
   type ScreenShareUpdatePayload,
+  type ServerUpdatePayload,
   type TypingStartPayload,
   type TypingStopPayload,
   type UserJoinedPayload,
@@ -65,6 +66,7 @@ class WebSocketManager {
       "typing_start",
       "typing_stop",
       "user_update",
+      "server_update",
       "voice_state_update",
       "rtc_ready",
       "rtc_offer",
@@ -469,6 +471,10 @@ class WebSocketManager {
 
       case WSEventType.UserUpdate:
         this.emit("user_update", message.d as UserUpdatePayload)
+        break
+
+      case WSEventType.ServerUpdate:
+        this.emit("server_update", message.d as ServerUpdatePayload)
         break
 
       case WSEventType.VoiceStateUpdate:

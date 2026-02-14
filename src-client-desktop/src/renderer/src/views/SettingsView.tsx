@@ -5,10 +5,10 @@ import AccountSettings from "../components/settings/AccountSettings"
 import ServerSettings from "../components/settings/ServerSettings"
 import ThemeSettings from "../components/settings/ThemeSettings"
 import VoiceSettings from "../components/settings/VoiceSettings"
-import { isSettingsTab, SETTINGS_TABS } from "../lib/constants/settings"
 import PanelLayout from "../components/shared/PanelLayout"
 import SidePanel from "../components/shared/SidePanel"
 import Toggle from "../components/shared/Toggle"
+import { isSettingsTab, SETTINGS_TABS } from "../lib/constants/settings"
 import { useSettings } from "../stores/settings"
 
 const SettingsView: Component = () => {

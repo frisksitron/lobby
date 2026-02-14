@@ -31,6 +31,7 @@ const (
 	EventTypingStart       = "TYPING_START"
 	EventTypingStop        = "TYPING_STOP"
 	EventUserUpdate        = "USER_UPDATE"
+	EventServerUpdate      = "SERVER_UPDATE"
 	EventVoiceStateUpdate  = "VOICE_STATE_UPDATE"
 	EventRtcReady          = "RTC_READY"
 	EventRtcOffer          = "RTC_OFFER"
@@ -183,6 +184,11 @@ type UserUpdatePayload struct {
 	ID       string `json:"id"`
 	Username string `json:"username,omitempty"`
 	Avatar   string `json:"avatar_url,omitempty"`
+}
+
+type ServerUpdatePayload struct {
+	Name    string `json:"name,omitempty"`
+	IconURL string `json:"icon_url,omitempty"`
 }
 
 // Client -> Server payloads (via DISPATCH)

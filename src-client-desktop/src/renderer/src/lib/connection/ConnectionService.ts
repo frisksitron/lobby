@@ -19,6 +19,7 @@ import type {
   ErrorPayload,
   ReadyPayload,
   RtcReadyPayload,
+  ServerUpdatePayload,
   VoiceSpeakingPayload,
   WSClientEvents,
   WSClientEventType
@@ -386,6 +387,42 @@ class ConnectionService {
           avatarUrl: payload.avatar_url
         })
         this.emit("user_update", payload)
+      })
+    )
+
+    unsubscribes.push(
+      wsManager.on("server_update", (payload: ServerUpdatePayload) => {
+        const current = this.currentServer()
+        if (!current) {
+          this.emit("server_update", payload)
+          return
+        }
+
+        const incomingName = payload.name?.trim()
+        const nextName = incomingName || current.name || "Server"
+        const nextInfo: ServerInfo = {
+          name: incomingName || current.info?.name || current.name || "Server",
+          iconUrl: payload.icon_url ?? current.info?.iconUrl,
+          uploadMaxBytes: current.info?.uploadMaxBytes
+        }
+
+        this.setCurrentServer({ ...current, name: nextName, info: nextInfo })
+
+        const persist = this.resolvers?.addServerEntry({
+          id: current.id,
+          name: nextName,
+          url: current.url,
+          iconUrl: nextInfo.iconUrl,
+          uploadMaxBytes: nextInfo.uploadMaxBytes
+        })
+
+        if (persist) {
+          void persist.catch((error) => {
+            log.debug("Failed to persist server update:", error)
+          })
+        }
+
+        this.emit("server_update", payload)
       })
     )
 

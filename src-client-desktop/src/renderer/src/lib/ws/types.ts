@@ -20,6 +20,7 @@ export enum WSEventType {
   TypingStart = "TYPING_START",
   TypingStop = "TYPING_STOP",
   UserUpdate = "USER_UPDATE",
+  ServerUpdate = "SERVER_UPDATE",
   VoiceStateUpdate = "VOICE_STATE_UPDATE",
   RtcReady = "RTC_READY",
   RtcOffer = "RTC_OFFER",
@@ -136,6 +137,11 @@ export interface UserUpdatePayload {
   avatar_url?: string
 }
 
+export interface ServerUpdatePayload {
+  name?: string
+  icon_url?: string
+}
+
 // Client -> Server payloads (via DISPATCH)
 
 export interface IdentifyPayload {
@@ -237,6 +243,7 @@ export type WSClientEventType =
   | "typing_start"
   | "typing_stop"
   | "user_update"
+  | "server_update"
   | "voice_state_update"
   | "rtc_ready"
   | "rtc_offer"
@@ -260,6 +267,7 @@ export interface WSClientEvents {
   typing_start: TypingStartPayload
   typing_stop: TypingStopPayload
   user_update: UserUpdatePayload
+  server_update: ServerUpdatePayload
   voice_state_update: VoiceStateUpdatePayload
   rtc_ready: RtcReadyPayload
   rtc_offer: RtcOfferPayload
