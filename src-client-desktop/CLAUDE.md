@@ -33,6 +33,7 @@ Renderer hot spots:
 - `src/renderer/src/lib/auth/token-manager.ts` - access/refresh token lifecycle.
 - `src/renderer/src/lib/connection/ConnectionService.ts` - connection phases and retry orchestration.
 - `src/renderer/src/lib/ws/manager.ts` - WebSocket handshake, dispatch routing, token re-identify.
+- `src/renderer/src/stores/messages.ts` - message history/realtime merge + draft attachment upload state.
 - `src/renderer/src/stores/connection.ts` - app-level session/server state.
 - `src/renderer/src/stores/voice.ts` - voice UI state and WS/RTC integration.
 - `src/renderer/src/lib/webrtc/` - SFU signaling and media pipeline.
@@ -51,6 +52,7 @@ When WebSocket payloads change, update both sides together:
 
 - Server: `../src-server/internal/ws/types.go`
 - Client: `src/renderer/src/lib/ws/types.ts`
+- Message attachment payload changes must update both files in the same change.
 
 ## After Editing
 
