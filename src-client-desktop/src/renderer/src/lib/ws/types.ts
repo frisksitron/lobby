@@ -99,8 +99,20 @@ export interface MessageCreatePayload {
     avatar_url?: string
   }
   content: string
+  attachments?: MessageAttachment[]
   created_at: string // ISO 8601
   nonce?: string
+}
+
+export interface MessageAttachment {
+  id: string
+  name: string
+  mime_type: string
+  size: number
+  url: string
+  preview_url?: string
+  preview_width?: number
+  preview_height?: number
 }
 
 export interface PresenceUpdatePayload {
@@ -135,6 +147,7 @@ export interface IdentifyPayload {
 
 export interface MessageSendPayload {
   content: string
+  attachment_ids?: string[]
   nonce?: string
 }
 

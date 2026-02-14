@@ -30,7 +30,19 @@ export interface Message {
   authorName: string
   authorAvatarUrl?: string
   content: string
+  attachments?: MessageAttachment[]
   timestamp: string
+}
+
+export interface MessageAttachment {
+  id: string
+  name: string
+  mimeType: string
+  size: number
+  url: string
+  previewUrl?: string
+  previewWidth?: number
+  previewHeight?: number
 }
 
 export interface VoiceParticipant {
@@ -81,10 +93,13 @@ export interface SecureTokens {
 
 export type NoiseSuppressionAlgorithm = "speex" | "rnnoise" | "none"
 
+export type SettingsTab = "account" | "server" | "voice" | "appearance" | "about"
+
 export interface AppSettings {
   inputDevice: string
   outputDevice: string
   lastActiveServerId: string | null
+  lastSettingsTab: SettingsTab
   noiseSuppression: NoiseSuppressionAlgorithm
   themeId: string
   userVolumes: Record<string, number> // userId -> volume (0-200)
@@ -98,6 +113,7 @@ export interface ServerEntry {
   name: string
   url: string
   iconUrl?: string
+  uploadMaxBytes?: number
   email?: string
 }
 

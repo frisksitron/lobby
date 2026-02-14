@@ -21,10 +21,12 @@ export const ERROR_MESSAGES: Record<string, string> = {
   "ws.voice_negotiation_failed": "Voice negotiation failed. Please rejoin.",
   "ws.voice_negotiation_timeout": "Voice setup timed out. Please rejoin.",
   "ws.signaling_rate_limited": "Voice signaling is busy. Please wait a moment.",
+  "ws.attachment_invalid": "Attachment not available. Re-attach and try again.",
   "ws.rate_limited": "Sending messages too fast.",
 
   // API errors
   "api.rate_limited": "Too many requests. Try again shortly.",
+  "api.payload_too_large": "File exceeds the server upload size limit.",
   "api.server_error": "Server error. Please try again.",
   "api.network_error": "Network error. Check your connection."
 }
@@ -59,10 +61,12 @@ export const ERROR_CODES = {
   VOICE_NEGOTIATION_FAILED: "ws.voice_negotiation_failed",
   VOICE_NEGOTIATION_TIMEOUT: "ws.voice_negotiation_timeout",
   SIGNALING_RATE_LIMITED: "ws.signaling_rate_limited",
+  ATTACHMENT_INVALID: "ws.attachment_invalid",
   MESSAGE_RATE_LIMITED: "ws.rate_limited",
 
   // API
   API_RATE_LIMITED: "api.rate_limited",
+  API_PAYLOAD_TOO_LARGE: "api.payload_too_large",
   API_SERVER_ERROR: "api.server_error",
   API_NETWORK_ERROR: "api.network_error"
 } as const

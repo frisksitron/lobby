@@ -5,6 +5,8 @@ import { type APIError, ApiError } from "./types"
 
 interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown
+  rawBody?: BodyInit | null
+  skipJsonContentType?: boolean
 }
 
 export function normalizeUrl(url: string): string {
@@ -49,6 +51,31 @@ export async function apiRequestCurrentServer<T>(
   return apiRequest<T>(serverUrl, endpoint, options)
 }
 
+export async function apiRequestMultipart<T>(
+  serverUrl: string,
+  endpoint: string,
+  formData: FormData,
+  method: "POST" | "PUT" | "PATCH" = "POST"
+): Promise<T> {
+  return apiRequest<T>(serverUrl, endpoint, {
+    method,
+    rawBody: formData,
+    skipJsonContentType: true
+  })
+}
+
+export async function apiRequestMultipartCurrentServer<T>(
+  endpoint: string,
+  formData: FormData,
+  method: "POST" | "PUT" | "PATCH" = "POST"
+): Promise<T> {
+  const serverUrl = getServerUrl()
+  if (!serverUrl) {
+    throw new ApiError("No server configured", "NO_SERVER", 400)
+  }
+  return apiRequestMultipart<T>(serverUrl, endpoint, formData, method)
+}
+
 /**
  * Make an unauthenticated request (for public endpoints like server info)
  */
@@ -68,8 +95,11 @@ async function doFetch(
 ): Promise<Response> {
   const url = `${normalizeUrl(serverUrl)}${endpoint}`
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(options.headers as Record<string, string>)
+  }
+
+  if (!options.skipJsonContentType && options.rawBody === undefined) {
+    headers["Content-Type"] = "application/json"
   }
 
   const accessToken = await getValidToken()
@@ -80,7 +110,12 @@ async function doFetch(
   return fetch(url, {
     ...options,
     headers,
-    body: options.body ? JSON.stringify(options.body) : undefined
+    body:
+      options.rawBody !== undefined
+        ? options.rawBody
+        : options.body
+          ? JSON.stringify(options.body)
+          : undefined
   })
 }
 

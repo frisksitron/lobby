@@ -31,6 +31,21 @@ export interface RefreshResponse {
 // Server info from /server/info
 export interface ServerInfo {
   name: string
+  iconUrl?: string
+  uploadMaxBytes?: number
+}
+
+export interface ChatUploadResponse {
+  id: string
+  name: string
+  mimeType: string
+  size: number
+  url: string
+  preview?: {
+    url: string
+    width: number
+    height: number
+  }
 }
 
 // API error response

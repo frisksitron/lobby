@@ -46,11 +46,13 @@ interface SecureTokens {
 }
 
 type NoiseSuppressionAlgorithm = "speex" | "rnnoise" | "none"
+type SettingsTab = "account" | "server" | "voice" | "appearance" | "about"
 
 interface AppSettings {
   inputDevice: string
   outputDevice: string
   lastActiveServerId: string | null
+  lastSettingsTab: SettingsTab
   noiseSuppression: NoiseSuppressionAlgorithm
   themeId: string
   userVolumes: Record<string, number>
@@ -63,6 +65,7 @@ interface ServerEntry {
   name: string
   url: string
   iconUrl?: string
+  uploadMaxBytes?: number
 }
 
 interface WindowBounds {
@@ -84,6 +87,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   inputDevice: "default",
   outputDevice: "default",
   lastActiveServerId: null,
+  lastSettingsTab: "account",
   noiseSuppression: "rnnoise",
   themeId: "discord",
   userVolumes: {},

@@ -53,6 +53,8 @@ interface Resolvers {
     id: string
     name: string
     url: string
+    iconUrl?: string
+    uploadMaxBytes?: number
     email?: string
   }) => Promise<void>
 }
@@ -590,16 +592,24 @@ class ConnectionService {
       }
 
       const nextName = info.name?.trim() || server.name || "Server"
+      const nextIconUrl = info.iconUrl ?? server.iconUrl
+      const nextUploadMaxBytes = info.uploadMaxBytes ?? server.uploadMaxBytes
       const current = this.currentServer()
       if (current?.id === server.id) {
         this.setCurrentServer({ ...current, name: nextName, info })
       }
 
-      if (nextName !== server.name) {
+      if (
+        nextName !== server.name ||
+        nextIconUrl !== server.iconUrl ||
+        nextUploadMaxBytes !== server.uploadMaxBytes
+      ) {
         await this.resolvers?.addServerEntry({
           id: server.id,
           name: nextName,
           url: server.url,
+          iconUrl: nextIconUrl,
+          uploadMaxBytes: nextUploadMaxBytes,
           email: server.email
         })
       }
@@ -626,7 +636,16 @@ class ConnectionService {
     this.disconnectWS()
     this.emitLifecycle("users_clear")
     setTokenManagerServerUrl(server.url)
-    this.setCurrentServer({ url: server.url, id: server.id, name: server.name })
+    this.setCurrentServer({
+      url: server.url,
+      id: server.id,
+      name: server.name,
+      info: {
+        name: server.name,
+        iconUrl: server.iconUrl,
+        uploadMaxBytes: server.uploadMaxBytes
+      }
+    })
     void this.refreshServerInfo(server, generation)
     this.setPhase("connecting")
 
@@ -719,6 +738,8 @@ class ConnectionService {
       id: serverId,
       name: serverInfo?.name || "Server",
       url: serverUrl,
+      iconUrl: serverInfo?.iconUrl,
+      uploadMaxBytes: serverInfo?.uploadMaxBytes,
       email: user.email ?? ""
     })
     if (this.connectGeneration !== generation) return

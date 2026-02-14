@@ -254,8 +254,12 @@ class WebSocketManager {
   /**
    * Send a chat message
    */
-  sendMessage(content: string, nonce?: string): void {
-    this.sendDispatch(WSCommandType.MessageSend, { content, nonce })
+  sendMessage(content: string, nonce?: string, attachmentIds?: string[]): void {
+    this.sendDispatch(WSCommandType.MessageSend, {
+      content,
+      nonce,
+      attachment_ids: attachmentIds && attachmentIds.length > 0 ? attachmentIds : undefined
+    })
   }
 
   /**

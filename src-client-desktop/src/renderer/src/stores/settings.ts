@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   inputDevice: "default",
   outputDevice: "default",
   lastActiveServerId: null,
+  lastSettingsTab: "account",
   noiseSuppression: "rnnoise",
   themeId: "discord",
   userVolumes: {},

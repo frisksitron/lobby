@@ -31,6 +31,7 @@ export async function addServerEntry(serverInfo: {
   name: string
   url: string
   iconUrl?: string
+  uploadMaxBytes?: number
   email?: string
 }): Promise<void> {
   const existing = servers().find((s) => s.id === serverInfo.id)
@@ -74,11 +75,27 @@ export async function leaveServer(serverId: string): Promise<string | null> {
   return connectionService.getServer()?.id ?? null
 }
 
+export async function updateServerIcon(serverId: string, iconUrl?: string): Promise<void> {
+  setServers((prev) =>
+    prev.map((server) => (server.id === serverId ? { ...server, iconUrl } : server))
+  )
+
+  const storedServers = await window.api.servers.getAll()
+  const existing = storedServers.find((server) => server.id === serverId)
+  if (!existing) return
+
+  await window.api.servers.add({
+    ...existing,
+    iconUrl
+  })
+}
+
 export function useServers() {
   return {
     servers,
     activeServerId: () => connectionService.getServer()?.id ?? "",
     activeServer: () => servers().find((s) => s.id === connectionService.getServer()?.id),
-    leaveServer
+    leaveServer,
+    updateServerIcon
   }
 }
