@@ -1,16 +1,8 @@
-import { createMicrophones, createSpeakers } from "@solid-primitives/devices"
 import { type Component, For } from "solid-js"
 import type { NoiseSuppressionAlgorithm } from "../../../../shared/types"
-import { COMMUNICATIONS_DEVICE_PREFIX, DEFAULT_DEVICE_PREFIX } from "../../lib/constants/devices"
+import { useMediaDevices } from "../../stores/media-devices"
 import { useSettings } from "../../stores/settings"
 import Toggle from "../shared/Toggle"
-
-const getPhysicalDevices = (devices: MediaDeviceInfo[]): MediaDeviceInfo[] =>
-  devices.filter(
-    (d) =>
-      !d.label.startsWith(DEFAULT_DEVICE_PREFIX) &&
-      !d.label.startsWith(COMMUNICATIONS_DEVICE_PREFIX)
-  )
 
 interface DeviceItemProps {
   label: string
@@ -54,12 +46,7 @@ const NOISE_SUPPRESSION_OPTIONS: NoiseSuppressionOption[] = [
 
 const VoiceSettings: Component = () => {
   const { settings, updateSetting, isLoading } = useSettings()
-
-  const microphones = createMicrophones()
-  const speakers = createSpeakers()
-
-  const inputDevices = () => getPhysicalDevices(microphones())
-  const outputDevices = () => getPhysicalDevices(speakers())
+  const { inputDevices, outputDevices } = useMediaDevices()
 
   return (
     <>

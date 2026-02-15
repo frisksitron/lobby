@@ -10,6 +10,7 @@ import "./messages"
 import "./typing"
 import "./voice"
 import "./screen-share"
+import "./media-devices"
 
 // Register data resolvers
 connectionService.setResolvers({

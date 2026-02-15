@@ -12,6 +12,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
   "webrtc.ice_restart_exhausted": "Voice connection lost. Please rejoin.",
   "webrtc.offer_timeout": "Voice server not responding.",
 
+  // Device availability
+  "device.selected_input_missing": "Selected microphone is no longer available.",
+
   // WebSocket / Voice rate limits
   "ws.voice_cooldown": "Too many voice toggles. Wait a moment.",
   "ws.voice_join_cooldown": "Joining voice too quickly.",
@@ -51,6 +54,9 @@ export const ERROR_CODES = {
   ICE_FAILED: "webrtc.ice_failed",
   ICE_RESTART_EXHAUSTED: "webrtc.ice_restart_exhausted",
   OFFER_TIMEOUT: "webrtc.offer_timeout",
+
+  // Device availability
+  SELECTED_INPUT_MISSING: "device.selected_input_missing",
 
   // WebSocket
   VOICE_COOLDOWN: "ws.voice_cooldown",

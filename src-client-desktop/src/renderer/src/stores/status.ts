@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js"
 
-export type StatusType = "voice" | "connection" | "message"
+export type StatusType = "voice" | "connection" | "message" | "device"
 
 export interface ActiveStatus {
   id: string
