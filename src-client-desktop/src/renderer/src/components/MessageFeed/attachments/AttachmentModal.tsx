@@ -119,7 +119,7 @@ const AttachmentModal: Component<AttachmentModalProps> = (props) => {
               <button
                 type="button"
                 onClick={props.onClose}
-                class="rounded p-1.5 text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+                class="rounded p-1.5 text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                 title="Close preview"
               >
                 <TbOutlineX class="w-5 h-5" />
