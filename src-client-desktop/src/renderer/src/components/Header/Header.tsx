@@ -67,7 +67,7 @@ const Header: Component = () => {
           <div class="relative" data-status-panel>
             <ButtonWithIcon
               icon={<TbOutlineAlertTriangle class="w-5 h-5 text-warning" />}
-              label="Issues"
+              label="Notifications"
               onClick={() => setStatusPanelOpen((prev) => !prev)}
             />
             <Show when={statusPanelOpen()}>

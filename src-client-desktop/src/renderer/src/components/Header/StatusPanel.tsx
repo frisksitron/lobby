@@ -74,7 +74,7 @@ const StatusPanel: Component<StatusPanelProps> = (props) => {
     <Show when={hasActiveIssues()}>
       <div class="absolute top-full right-0 mt-1 w-72 bg-surface-elevated rounded-lg shadow-lg border border-border z-50">
         <div class="px-3 py-2 border-b border-border">
-          <h3 class="text-sm font-medium text-text-primary">Active Issues</h3>
+          <h3 class="text-sm font-medium text-text-primary">Notification Center</h3>
         </div>
         <div class="py-1 max-h-64 overflow-y-auto">
           <For each={activeStatuses()}>{(status) => <StatusItem status={status} />}</For>
