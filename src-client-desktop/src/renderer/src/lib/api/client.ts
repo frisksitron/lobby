@@ -133,7 +133,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
         expiresAt: Date.now() + retrySeconds * 1000
       })
 
-      throw new ApiError("Too many requests", "RATE_LIMITED", 429)
+      throw new ApiError("Rate limited: API requests.", "RATE_LIMITED", 429)
     }
 
     let errorData: APIError | null = null

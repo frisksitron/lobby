@@ -499,7 +499,7 @@ func (c *Client) rejectSignalingRateLimit(command string, retryAfter int64) {
 		Type: EventError,
 		Data: ErrorPayload{
 			Code:       ErrCodeSignalingRateLimited,
-			Message:    "Signaling rate limited",
+			Message:    "",
 			RetryAfter: retryAfter,
 		},
 	}
@@ -670,7 +670,7 @@ func (c *Client) handleMessageSend(msg *WSMessage) {
 			Type: EventError,
 			Data: ErrorPayload{
 				Code:    ErrCodeRateLimited,
-				Message: "Sending too fast",
+				Message: "",
 				Nonce:   nonce,
 			},
 		}
@@ -955,7 +955,7 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 			Type: EventError,
 			Data: ErrorPayload{
 				Code:       ErrCodeVoiceJoinCooldown,
-				Message:    "Joining too fast, slow down",
+				Message:    "",
 				RetryAfter: c.voiceJoinCooldownAt.UnixMilli(),
 			},
 		}
@@ -982,7 +982,7 @@ func (c *Client) handleVoiceJoin(msg *WSMessage) {
 			Type: EventError,
 			Data: ErrorPayload{
 				Code:       ErrCodeVoiceJoinCooldown,
-				Message:    "Joining too fast, slow down",
+				Message:    "",
 				RetryAfter: c.voiceJoinCooldownAt.UnixMilli(),
 			},
 		}
@@ -1299,7 +1299,7 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 				Type: EventError,
 				Data: ErrorPayload{
 					Code:       ErrCodeVoiceStateCooldown,
-					Message:    "Too many toggles, try again in a moment",
+					Message:    "",
 					RetryAfter: c.voiceCooldownAt.UnixMilli(),
 				},
 			}
@@ -1326,7 +1326,7 @@ func (c *Client) handleVoiceStateSet(msg *WSMessage) {
 				Type: EventError,
 				Data: ErrorPayload{
 					Code:       ErrCodeVoiceStateCooldown,
-					Message:    "Too many toggles, try again in a moment",
+					Message:    "",
 					RetryAfter: c.voiceCooldownAt.UnixMilli(),
 				},
 			}

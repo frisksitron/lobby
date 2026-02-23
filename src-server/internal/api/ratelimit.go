@@ -30,7 +30,7 @@ func RateLimitMiddleware(limiter *RateLimiter, ipResolver *ClientIPResolver) fun
 		}),
 		httprate.WithLimitHandler(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Retry-After", "60")
-			writeError(w, http.StatusTooManyRequests, ErrCodeRateLimited, "Too many requests, please try again later")
+			writeError(w, http.StatusTooManyRequests, ErrCodeRateLimited, "")
 		}),
 	)
 
