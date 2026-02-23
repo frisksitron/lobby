@@ -15,7 +15,7 @@ import type {
 import { wsManager } from "../lib/ws"
 import { stopScreenShare } from "./screen-share"
 import { useSettings } from "./settings"
-import { clearStatus, setStatus } from "./status"
+import { expiresAtFromRetryAfter, reportIssue, resolveIssue } from "./status"
 import { updateUser, users } from "./users"
 
 const log = createLogger("Voice")
@@ -140,7 +140,7 @@ function handleWebRTCError(error: WebRTCError): void {
   const statusCode = statusCodeMap[error.code] || `webrtc.${error.code}`
   const message = getErrorMessage(statusCode)
 
-  setStatus({ type: "voice", code: statusCode, message })
+  reportIssue({ type: "voice", code: statusCode, message })
 
   if (STARTUP_FAILURE_CODES.has(error.code)) {
     cleanupVoiceStartupFailure(`webrtc:${error.code}`)
@@ -148,13 +148,13 @@ function handleWebRTCError(error: WebRTCError): void {
 }
 
 function clearVoiceErrors(): void {
-  clearStatus(ERROR_CODES.MEDIA_PERMISSION_DENIED)
-  clearStatus(ERROR_CODES.NO_DEVICE)
-  clearStatus(ERROR_CODES.DEVICE_NOT_FOUND)
-  clearStatus(ERROR_CODES.DEVICE_IN_USE)
-  clearStatus(ERROR_CODES.ICE_FAILED)
-  clearStatus(ERROR_CODES.ICE_RESTART_EXHAUSTED)
-  clearStatus(ERROR_CODES.OFFER_TIMEOUT)
+  resolveIssue(ERROR_CODES.MEDIA_PERMISSION_DENIED)
+  resolveIssue(ERROR_CODES.NO_DEVICE)
+  resolveIssue(ERROR_CODES.DEVICE_NOT_FOUND)
+  resolveIssue(ERROR_CODES.DEVICE_IN_USE)
+  resolveIssue(ERROR_CODES.ICE_FAILED)
+  resolveIssue(ERROR_CODES.ICE_RESTART_EXHAUSTED)
+  resolveIssue(ERROR_CODES.OFFER_TIMEOUT)
 }
 
 function handleVoiceStateUpdate(payload: VoiceStateUpdatePayload): void {
@@ -280,8 +280,8 @@ function handleVoiceJoinCooldown(): void {
 function handleServerError(payload: ErrorPayload): void {
   if (payload.code === "VOICE_STATE_COOLDOWN") {
     handleVoiceStateCooldown()
-    const expiresAt = payload.retry_after ?? Date.now() + 10_000
-    setStatus({
+    const expiresAt = expiresAtFromRetryAfter(payload.retry_after, 10_000)
+    reportIssue({
       type: "voice",
       code: ERROR_CODES.VOICE_COOLDOWN,
       message: getErrorMessage(ERROR_CODES.VOICE_COOLDOWN),
@@ -289,51 +289,51 @@ function handleServerError(payload: ErrorPayload): void {
     })
   } else if (payload.code === "VOICE_JOIN_COOLDOWN") {
     handleVoiceJoinCooldown()
-    const expiresAt = payload.retry_after ?? Date.now() + 15_000
-    setStatus({
+    const expiresAt = expiresAtFromRetryAfter(payload.retry_after, 15_000)
+    reportIssue({
       type: "voice",
       code: ERROR_CODES.VOICE_JOIN_COOLDOWN,
       message: getErrorMessage(ERROR_CODES.VOICE_JOIN_COOLDOWN),
       expiresAt
     })
   } else if (payload.code === "VOICE_JOIN_FAILED") {
-    setStatus({
+    reportIssue({
       type: "voice",
       code: ERROR_CODES.VOICE_JOIN_FAILED,
       message: getErrorMessage(ERROR_CODES.VOICE_JOIN_FAILED)
     })
     cleanupVoiceStartupFailure("server:VOICE_JOIN_FAILED")
   } else if (payload.code === "VOICE_STATE_INVALID_TRANSITION") {
-    setStatus({
+    reportIssue({
       type: "voice",
       code: ERROR_CODES.VOICE_STATE_INVALID_TRANSITION,
       message: getErrorMessage(ERROR_CODES.VOICE_STATE_INVALID_TRANSITION),
       expiresAt: Date.now() + 5_000
     })
   } else if (payload.code === "VOICE_NEGOTIATION_INVALID_STATE") {
-    setStatus({
+    reportIssue({
       type: "voice",
       code: ERROR_CODES.VOICE_NEGOTIATION_INVALID_STATE,
       message: getErrorMessage(ERROR_CODES.VOICE_NEGOTIATION_INVALID_STATE),
       expiresAt: Date.now() + 5_000
     })
   } else if (payload.code === "VOICE_NEGOTIATION_FAILED") {
-    setStatus({
+    reportIssue({
       type: "voice",
       code: ERROR_CODES.VOICE_NEGOTIATION_FAILED,
       message: getErrorMessage(ERROR_CODES.VOICE_NEGOTIATION_FAILED)
     })
     cleanupVoiceStartupFailure("server:VOICE_NEGOTIATION_FAILED")
   } else if (payload.code === "VOICE_NEGOTIATION_TIMEOUT") {
-    setStatus({
+    reportIssue({
       type: "voice",
       code: ERROR_CODES.VOICE_NEGOTIATION_TIMEOUT,
       message: getErrorMessage(ERROR_CODES.VOICE_NEGOTIATION_TIMEOUT)
     })
     cleanupVoiceStartupFailure("server:VOICE_NEGOTIATION_TIMEOUT")
   } else if (payload.code === "SIGNALING_RATE_LIMITED") {
-    const expiresAt = payload.retry_after ?? Date.now() + 2_000
-    setStatus({
+    const expiresAt = expiresAtFromRetryAfter(payload.retry_after, 2_000)
+    reportIssue({
       type: "voice",
       code: ERROR_CODES.SIGNALING_RATE_LIMITED,
       message: getErrorMessage(ERROR_CODES.SIGNALING_RATE_LIMITED),

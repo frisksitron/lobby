@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "@solidjs/router"
-import { TbOutlineAlertTriangle, TbOutlineSettings, TbOutlineX } from "solid-icons/tb"
+import { TbOutlineBell, TbOutlineSettings, TbOutlineX } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { DEFAULT_SETTINGS_TAB, isSettingsTab } from "../../lib/constants/settings"
 import { useServers } from "../../stores/servers"
@@ -66,7 +66,7 @@ const Header: Component = () => {
         <Show when={hasActiveIssues()}>
           <div class="relative" data-status-panel>
             <ButtonWithIcon
-              icon={<TbOutlineAlertTriangle class="w-5 h-5 text-warning" />}
+              icon={<TbOutlineBell class="w-5 h-5" />}
               label="Notifications"
               onClick={() => setStatusPanelOpen((prev) => !prev)}
             />

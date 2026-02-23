@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js"
+import { createMemo, createSignal, untrack } from "solid-js"
 
 export type StatusType = "voice" | "connection" | "message" | "device"
 
@@ -10,58 +10,102 @@ export interface ActiveStatus {
   expiresAt?: number // For transient issues - auto-remove when expired
 }
 
+type StatusInput = Omit<ActiveStatus, "id">
+
 const [activeStatuses, setActiveStatuses] = createSignal<ActiveStatus[]>([])
 
-// Cleanup interval for expired statuses
-let cleanupInterval: ReturnType<typeof setInterval> | null = null
+let cleanupTimeout: ReturnType<typeof setTimeout> | null = null
 
-function startCleanupTimer(): void {
-  if (cleanupInterval) return
-  cleanupInterval = setInterval(() => {
-    clearExpired()
-  }, 1000)
+function toStatusId(status: StatusInput): string {
+  return `${status.type}-${status.code}`
 }
 
 function stopCleanupTimer(): void {
-  if (cleanupInterval) {
-    clearInterval(cleanupInterval)
-    cleanupInterval = null
+  if (cleanupTimeout) {
+    clearTimeout(cleanupTimeout)
+    cleanupTimeout = null
   }
+}
+
+function getNextExpiry(statuses: ActiveStatus[]): number | null {
+  const now = Date.now()
+  let nextExpiry: number | null = null
+
+  for (const status of statuses) {
+    if (!status.expiresAt) continue
+    if (status.expiresAt <= now) {
+      return now
+    }
+
+    if (nextExpiry === null || status.expiresAt < nextExpiry) {
+      nextExpiry = status.expiresAt
+    }
+  }
+
+  return nextExpiry
+}
+
+function scheduleCleanupTimer(): void {
+  stopCleanupTimer()
+
+  const nextExpiry = getNextExpiry(untrack(activeStatuses))
+  if (nextExpiry === null) return
+
+  const delay = Math.max(0, nextExpiry - Date.now()) + 5
+  cleanupTimeout = setTimeout(() => {
+    cleanupTimeout = null
+    clearExpired()
+  }, delay)
 }
 
 /**
  * Add or update a status. If a status with the same code exists, it will be updated.
  */
-export function setStatus(status: Omit<ActiveStatus, "id">): void {
-  const id = `${status.type}-${status.code}`
+export function reportIssue(status: StatusInput): void {
+  const nextStatus: ActiveStatus = {
+    ...status,
+    id: toStatusId(status)
+  }
 
   setActiveStatuses((prev) => {
-    const existing = prev.find((s) => s.code === status.code)
-    if (existing) {
-      // Update existing status
-      return prev.map((s) => (s.code === status.code ? { ...status, id } : s))
+    const index = prev.findIndex((s) => s.code === nextStatus.code)
+    if (index === -1) {
+      return [...prev, nextStatus]
     }
-    // Add new status
-    return [...prev, { ...status, id }]
+
+    const existing = prev[index]
+    if (
+      existing.type === nextStatus.type &&
+      existing.message === nextStatus.message &&
+      existing.expiresAt === nextStatus.expiresAt
+    ) {
+      return prev
+    }
+
+    const updated = prev.slice()
+    updated[index] = nextStatus
+    return updated
   })
 
-  // Start cleanup timer if we have expiring statuses
-  if (status.expiresAt) {
-    startCleanupTimer()
-  }
+  scheduleCleanupTimer()
 }
 
 /**
  * Remove a status by code
  */
-export function clearStatus(code: string): void {
-  setActiveStatuses((prev) => prev.filter((s) => s.code !== code))
+export function resolveIssue(code: string): void {
+  setActiveStatuses((prev) => {
+    const index = prev.findIndex((s) => s.code === code)
+    if (index === -1) {
+      return prev
+    }
 
-  // Stop cleanup timer if no more expiring statuses
-  const hasExpiring = activeStatuses().some((s) => s.expiresAt)
-  if (!hasExpiring) {
-    stopCleanupTimer()
-  }
+    const updated = prev.slice()
+    updated.splice(index, 1)
+    return updated
+  })
+
+  scheduleCleanupTimer()
 }
 
 /**
@@ -69,13 +113,19 @@ export function clearStatus(code: string): void {
  */
 export function clearExpired(): void {
   const now = Date.now()
-  setActiveStatuses((prev) => prev.filter((s) => !s.expiresAt || s.expiresAt > now))
+  setActiveStatuses((prev) => {
+    let changed = false
+    const filtered = prev.filter((s) => {
+      const keep = !s.expiresAt || s.expiresAt > now
+      if (!keep) {
+        changed = true
+      }
+      return keep
+    })
+    return changed ? filtered : prev
+  })
 
-  // Stop cleanup timer if no more expiring statuses
-  const hasExpiring = activeStatuses().some((s) => s.expiresAt)
-  if (!hasExpiring) {
-    stopCleanupTimer()
-  }
+  scheduleCleanupTimer()
 }
 
 /**
@@ -86,11 +136,15 @@ export function clearAllStatuses(): void {
   stopCleanupTimer()
 }
 
-/**
- * Check if there are any active issues
- */
-export function hasActiveIssues(): boolean {
-  return activeStatuses().length > 0
+export function expiresAtFromRetryAfter(
+  retryAfter: number | null | undefined,
+  fallbackMs: number
+): number {
+  const now = Date.now()
+  if (typeof retryAfter === "number" && Number.isFinite(retryAfter) && retryAfter > now) {
+    return retryAfter
+  }
+  return now + fallbackMs
 }
 
 /**
@@ -103,11 +157,13 @@ export function getRemainingSeconds(status: ActiveStatus): number | null {
 }
 
 export function useStatus() {
+  const hasIssues = createMemo(() => activeStatuses().length > 0)
+
   return {
     activeStatuses,
-    hasActiveIssues: () => activeStatuses().length > 0,
-    setStatus,
-    clearStatus,
+    hasActiveIssues: hasIssues,
+    reportIssue,
+    resolveIssue,
     clearExpired,
     clearAllStatuses,
     getRemainingSeconds

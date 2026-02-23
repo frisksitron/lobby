@@ -1,4 +1,4 @@
-import { setStatus } from "../../stores/status"
+import { reportIssue } from "../../stores/status"
 import { getServerUrl, getValidToken, refreshToken } from "../auth/token-manager"
 import { ERROR_CODES, getErrorMessage } from "../errors/user-messages"
 import { type APIError, ApiError } from "./types"
@@ -126,7 +126,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
       const retryAfter = response.headers.get("Retry-After")
       const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60
 
-      setStatus({
+      reportIssue({
         type: "message",
         code: ERROR_CODES.API_RATE_LIMITED,
         message: getErrorMessage(ERROR_CODES.API_RATE_LIMITED),

@@ -1,7 +1,7 @@
 import { TbOutlineAlertTriangle, TbOutlineX } from "solid-icons/tb"
 import { type Component, createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import type { ActiveStatus } from "../../stores/status"
-import { clearStatus, getRemainingSeconds, useStatus } from "../../stores/status"
+import { getRemainingSeconds, resolveIssue, useStatus } from "../../stores/status"
 
 interface StatusItemProps {
   status: ActiveStatus
@@ -40,7 +40,7 @@ const StatusItem: Component<StatusItemProps> = (props) => {
       <Show when={!isTransient()}>
         <button
           type="button"
-          onClick={() => clearStatus(props.status.code)}
+          onClick={() => resolveIssue(props.status.code)}
           class="p-0.5 hover:bg-surface rounded transition-colors flex-shrink-0"
           aria-label="Dismiss"
         >

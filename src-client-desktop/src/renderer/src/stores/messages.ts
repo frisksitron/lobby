@@ -9,7 +9,7 @@ import { formatUploadTooLargeMessage, toValidMaxBytes } from "../lib/files"
 import { createLogger } from "../lib/logger"
 import type { ErrorPayload, MessageCreatePayload } from "../lib/ws"
 import { wsManager } from "../lib/ws"
-import { setStatus } from "./status"
+import { expiresAtFromRetryAfter, reportIssue } from "./status"
 import { users } from "./users"
 
 const log = createLogger("Messages")
@@ -320,19 +320,16 @@ function clearDraftAttachments(): void {
 // Module-level event subscriptions
 connectionService.on("server_error", (payload: ErrorPayload) => {
   if (payload.code === "RATE_LIMITED") {
-    const expiresAt =
-      payload.retry_after && payload.retry_after > Date.now()
-        ? payload.retry_after
-        : Date.now() + 2_000
+    const expiresAt = expiresAtFromRetryAfter(payload.retry_after, 2_000)
 
-    setStatus({
+    reportIssue({
       type: "message",
       code: ERROR_CODES.MESSAGE_RATE_LIMITED,
       message: getErrorMessage(ERROR_CODES.MESSAGE_RATE_LIMITED),
       expiresAt
     })
   } else if (payload.code === "ATTACHMENT_INVALID") {
-    setStatus({
+    reportIssue({
       type: "message",
       code: ERROR_CODES.ATTACHMENT_INVALID,
       message: getErrorMessage(ERROR_CODES.ATTACHMENT_INVALID)

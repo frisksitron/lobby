@@ -3,7 +3,7 @@ import { createEffect, createMemo, createRoot, createSignal, on } from "solid-js
 import { COMMUNICATIONS_DEVICE_PREFIX, DEFAULT_DEVICE_PREFIX } from "../lib/constants/devices"
 import { ERROR_CODES, getErrorMessage } from "../lib/errors/user-messages"
 import { useSettings } from "./settings"
-import { clearStatus, setStatus } from "./status"
+import { reportIssue, resolveIssue } from "./status"
 
 const getPhysicalDevices = (devices: MediaDeviceInfo[]): MediaDeviceInfo[] =>
   devices.filter(
@@ -23,40 +23,44 @@ const mediaDevicesStore = createRoot(() => {
 
   createEffect(on(devices, () => setDevicesInitialized(true), { defer: true }))
 
-  createEffect(() => {
-    if (!devicesInitialized()) {
-      return
-    }
+  createEffect(
+    on(
+      [devicesInitialized, inputDevices, () => settings().inputDevice],
+      ([initialized, availableInputs, selectedInputDevice]) => {
+        if (!initialized) {
+          return
+        }
 
-    const availableInputs = inputDevices()
-    if (availableInputs.length === 0) {
-      setStatus({
-        type: "device",
-        code: ERROR_CODES.NO_DEVICE,
-        message: getErrorMessage(ERROR_CODES.NO_DEVICE)
-      })
-      clearStatus(ERROR_CODES.SELECTED_INPUT_MISSING)
-      return
-    }
+        if (availableInputs.length === 0) {
+          reportIssue({
+            type: "device",
+            code: ERROR_CODES.NO_DEVICE,
+            message: getErrorMessage(ERROR_CODES.NO_DEVICE)
+          })
+          resolveIssue(ERROR_CODES.SELECTED_INPUT_MISSING)
+          return
+        }
 
-    clearStatus(ERROR_CODES.NO_DEVICE)
+        resolveIssue(ERROR_CODES.NO_DEVICE)
 
-    const selectedInputDevice = settings().inputDevice
-    const selectedInputMissing =
-      selectedInputDevice !== "default" &&
-      selectedInputDevice !== "" &&
-      !availableInputs.some((device) => device.deviceId === selectedInputDevice)
+        const selectedInputMissing =
+          selectedInputDevice !== "default" &&
+          selectedInputDevice !== "" &&
+          !availableInputs.some((device) => device.deviceId === selectedInputDevice)
 
-    if (selectedInputMissing) {
-      setStatus({
-        type: "device",
-        code: ERROR_CODES.SELECTED_INPUT_MISSING,
-        message: getErrorMessage(ERROR_CODES.SELECTED_INPUT_MISSING)
-      })
-    } else {
-      clearStatus(ERROR_CODES.SELECTED_INPUT_MISSING)
-    }
-  })
+        if (selectedInputMissing) {
+          reportIssue({
+            type: "device",
+            code: ERROR_CODES.SELECTED_INPUT_MISSING,
+            message: getErrorMessage(ERROR_CODES.SELECTED_INPUT_MISSING)
+          })
+        } else {
+          resolveIssue(ERROR_CODES.SELECTED_INPUT_MISSING)
+        }
+      },
+      { defer: true }
+    )
+  )
 
   return {
     inputDevices,
