@@ -1,7 +1,9 @@
 package api
 
 import (
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/httprate"
@@ -22,6 +24,8 @@ func RateLimitMiddleware(limiter *RateLimiter, ipResolver *ClientIPResolver) fun
 		ipResolver, _ = NewClientIPResolver(nil)
 	}
 
+	retryAfter := retryAfterSeconds(limiter.windowLength)
+
 	middleware := httprate.Limit(
 		limiter.requestLimit,
 		limiter.windowLength,
@@ -29,10 +33,18 @@ func RateLimitMiddleware(limiter *RateLimiter, ipResolver *ClientIPResolver) fun
 			return ipResolver.Resolve(r), nil
 		}),
 		httprate.WithLimitHandler(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Retry-After", "60")
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 			writeError(w, http.StatusTooManyRequests, ErrCodeRateLimited, "")
 		}),
 	)
 
 	return middleware
+}
+
+func retryAfterSeconds(window time.Duration) int {
+	seconds := int(math.Ceil(window.Seconds()))
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
 }

@@ -438,7 +438,7 @@ func readSingleFileUpload(
 	maxBytes int64,
 ) (multipart.File, *multipart.FileHeader, func(), bool) {
 	if maxBytes > 0 {
-		r.Body = http.MaxBytesReader(nil, r.Body, maxBytes)
+		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 	}
 
 	err := r.ParseMultipartForm(1 << 20)

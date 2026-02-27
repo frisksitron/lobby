@@ -58,6 +58,7 @@ interface AppSettings {
   userVolumes: Record<string, number>
   echoCancellation: boolean
   compressor: boolean
+  compactMode: boolean
 }
 
 interface ServerEntry {
@@ -92,7 +93,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   themeId: "discord",
   userVolumes: {},
   echoCancellation: false,
-  compressor: true
+  compressor: true,
+  compactMode: false
 }
 
 const INSTANCE_ID = process.env.LOBBY_INSTANCE_ID || ""

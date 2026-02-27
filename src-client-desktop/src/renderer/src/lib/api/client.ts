@@ -94,17 +94,19 @@ async function doFetch(
   options: RequestOptions
 ): Promise<Response> {
   const url = `${normalizeUrl(serverUrl)}${endpoint}`
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string>)
-  }
+  const headers = new Headers(options.headers)
 
-  if (!options.skipJsonContentType && options.rawBody === undefined) {
-    headers["Content-Type"] = "application/json"
+  if (
+    !options.skipJsonContentType &&
+    options.rawBody === undefined &&
+    !headers.has("Content-Type")
+  ) {
+    headers.set("Content-Type", "application/json")
   }
 
   const accessToken = await getValidToken()
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`
+  if (accessToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${accessToken}`)
   }
 
   return fetch(url, {

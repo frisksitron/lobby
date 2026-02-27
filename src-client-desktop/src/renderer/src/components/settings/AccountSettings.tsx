@@ -67,7 +67,7 @@ const AccountSettings: Component = () => {
         return
       }
 
-      const updatedUser = await updateMe(serverUrl, token, {
+      const updatedUser = await updateMe(serverUrl, {
         username: newUsername
       })
 
@@ -130,7 +130,7 @@ const AccountSettings: Component = () => {
             return
           }
 
-          await apiLeaveServer(serverUrl, token)
+          await apiLeaveServer(serverUrl)
 
           const nextServerId = await leaveServer(activeServerId())
           closeConfirmDialog()

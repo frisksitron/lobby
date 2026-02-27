@@ -48,6 +48,27 @@ const [pendingRegistrationToken, setPendingRegistrationToken] = createSignal<str
 const [authError, setAuthError] = createSignal<string | null>(null)
 const [isLoading, setIsLoading] = createSignal(false)
 
+function defaultPortForProtocol(protocol: string): string {
+  if (protocol === "http:") return "80"
+  if (protocol === "https:") return "443"
+  return ""
+}
+
+function toServerDedupeKey(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl.trim())
+    const protocol = parsed.protocol.toLowerCase()
+    const hostname = parsed.hostname.toLowerCase()
+    const host = hostname.includes(":") ? `[${hostname}]` : hostname
+    const port = parsed.port || defaultPortForProtocol(protocol)
+    const path = parsed.pathname.replace(/\/+$/, "") || "/"
+
+    return `${protocol}//${host}${port ? `:${port}` : ""}${path}`
+  } catch {
+    return null
+  }
+}
+
 /**
  * Reset the auth flow to initial state
  */
@@ -108,15 +129,16 @@ async function connectToServer(url: string): Promise<boolean> {
   setAuthError(null)
 
   try {
+    const dedupeKey = toServerDedupeKey(url)
+    if (!dedupeKey) {
+      setAuthError("Invalid server URL")
+      return false
+    }
+
     // Check if this server is already added
     const servers = await window.api.servers.getAll()
-    const host = new URL(url).host
     const alreadyAdded = servers.some((s) => {
-      try {
-        return new URL(s.url).host === host
-      } catch {
-        return false
-      }
+      return toServerDedupeKey(s.url) === dedupeKey
     })
     if (alreadyAdded) {
       setAuthError("This server is already added")

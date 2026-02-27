@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"lobby/internal/constants"
@@ -12,6 +14,8 @@ import (
 	"lobby/internal/mediaurl"
 	"lobby/internal/models"
 )
+
+const defaultMessageHistoryLimit = 50
 
 type historyMessageRow struct {
 	ID              string
@@ -36,17 +40,13 @@ func NewMessageHandler(queries *sqldb.Queries, baseURL string) *MessageHandler {
 }
 
 func (h *MessageHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
-	limitStr := r.URL.Query().Get("limit")
-	beforeStr := r.URL.Query().Get("before")
-
-	limit := 50
-	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= constants.MessageHistoryMaxLimit {
-			limit = l
-		}
+	limit, beforeID, validationMessage, ok := parseHistoryQuery(r)
+	if !ok {
+		badRequest(w, validationMessage)
+		return
 	}
 
-	rows, err := h.listHistoryRows(r.Context(), beforeStr, int64(limit))
+	rows, err := h.listHistoryRows(r.Context(), beforeID, int64(limit))
 	if err != nil {
 		internalError(w)
 		return
@@ -74,6 +74,48 @@ func (h *MessageHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(messages)
+}
+
+func parseHistoryQuery(r *http.Request) (int, string, string, bool) {
+	limitStr := strings.TrimSpace(r.URL.Query().Get("limit"))
+	beforeID := strings.TrimSpace(r.URL.Query().Get("before"))
+
+	limit := defaultMessageHistoryLimit
+	if limitStr != "" {
+		parsedLimit, err := strconv.Atoi(limitStr)
+		if err != nil {
+			return 0, "", "Query parameter 'limit' must be an integer", false
+		}
+		if parsedLimit <= 0 || parsedLimit > constants.MessageHistoryMaxLimit {
+			return 0, "", fmt.Sprintf("Query parameter 'limit' must be between 1 and %d", constants.MessageHistoryMaxLimit), false
+		}
+		limit = parsedLimit
+	}
+
+	if beforeID != "" && !isValidMessageID(beforeID) {
+		return 0, "", "Query parameter 'before' must be a valid message ID", false
+	}
+
+	return limit, beforeID, "", true
+}
+
+func isValidMessageID(id string) bool {
+	if !strings.HasPrefix(id, "msg_") {
+		return false
+	}
+
+	hexPart := strings.TrimPrefix(id, "msg_")
+	if len(hexPart) != constants.IDRandomBytes*2 {
+		return false
+	}
+
+	for _, r := range hexPart {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (h *MessageHandler) listHistoryRows(ctx context.Context, beforeID string, limitRows int64) ([]historyMessageRow, error) {

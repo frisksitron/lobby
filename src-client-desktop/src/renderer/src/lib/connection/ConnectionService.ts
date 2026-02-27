@@ -713,7 +713,7 @@ class ConnectionService {
     }
 
     try {
-      const user = await apiGetMe(server.url, token)
+      const user = await apiGetMe(server.url)
       if (this.connectGeneration !== generation) return false
       this.setCurrentUserId(user.id)
       this.resolvers?.onUserAdd([user])

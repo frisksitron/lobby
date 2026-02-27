@@ -44,10 +44,8 @@ export function stopScreenShare(): void {
 }
 
 export function subscribeToStream(streamerId: string): void {
-  log.info(`[DEBUG] subscribeToStream called with streamerId: ${streamerId}`)
   screenShareManager.subscribeToStream(streamerId)
   // Don't set viewingStreamerId here - wait for the stream to actually arrive
-  log.info(`[DEBUG] subscribeToStream completed, waiting for remote stream`)
 }
 
 export function unsubscribeFromStream(): void {
@@ -75,13 +73,10 @@ function handleScreenShareUpdate(payload: ScreenShareUpdatePayload): void {
 
 // Set up remote stream callback
 screenShareManager.onRemoteStream((stream, streamerId) => {
-  log.info(`[DEBUG] onRemoteStream callback - stream: ${!!stream}, streamerId: ${streamerId}`)
   setRemoteStream(stream)
-  log.info(`[DEBUG] setRemoteStream called, current value: ${!!remoteStream()}`)
   if (stream && streamerId) {
     // Stream arrived - now update the viewing state to switch the UI
     setViewingStreamerId(streamerId)
-    log.info(`[DEBUG] setViewingStreamerId called with: ${streamerId}`)
   } else {
     setViewingStreamerId(null)
   }

@@ -96,35 +96,21 @@ export async function logout(serverUrl: string, accessToken: string): Promise<vo
 }
 
 // Get current user info
-export async function getMe(serverUrl: string, accessToken: string): Promise<User> {
-  return apiRequest<User>(serverUrl, "/api/v1/users/me", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  })
+export async function getMe(serverUrl: string): Promise<User> {
+  return apiRequest<User>(serverUrl, "/api/v1/users/me")
 }
 
 // Update current user info
-export async function updateMe(
-  serverUrl: string,
-  accessToken: string,
-  data: UpdateUserRequest
-): Promise<User> {
+export async function updateMe(serverUrl: string, data: UpdateUserRequest): Promise<User> {
   return apiRequest<User>(serverUrl, "/api/v1/users/me", {
     method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    },
     body: data
   })
 }
 
 // Leave server (deactivate account)
-export async function leaveServer(serverUrl: string, accessToken: string): Promise<void> {
+export async function leaveServer(serverUrl: string): Promise<void> {
   await apiRequest<{ message: string }>(serverUrl, "/api/v1/users/me", {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
+    method: "DELETE"
   })
 }

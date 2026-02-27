@@ -66,50 +66,7 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated := false
-	if req.Username != nil {
-		username := strings.TrimSpace(*req.Username)
-
-		if !usernameRegex.MatchString(username) {
-			badRequest(w, "Username must be 3-32 characters and contain only letters, numbers, underscores, and hyphens")
-			return
-		}
-
-		count, err := h.queries.CountUsersByUsername(r.Context(), username)
-		if err != nil {
-			slog.Error("error checking username availability", "error", err)
-			internalError(w)
-			return
-		}
-		if count > 0 {
-			conflict(w, "Username already taken")
-			return
-		}
-
-		now := time.Now().UTC()
-		rowsAffected, err := h.queries.UpdateUsername(r.Context(), sqldb.UpdateUsernameParams{
-			Username:  username,
-			UpdatedAt: &now,
-			ID:        userID,
-		})
-		if err != nil {
-			if db.IsUniqueConstraintError(err) {
-				conflict(w, "Username already taken")
-				return
-			}
-			slog.Error("error updating username", "error", err)
-			internalError(w)
-			return
-		}
-		if rowsAffected == 0 {
-			notFound(w, "User not found")
-			return
-		}
-		updated = true
-	}
-
-	// Return updated user
-	row, err := h.queries.GetActiveUserByID(r.Context(), userID)
+	currentUserRow, err := h.queries.GetActiveUserByID(r.Context(), userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		notFound(w, "User not found")
 		return
@@ -119,7 +76,65 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		internalError(w)
 		return
 	}
-	user := modelUserFromDBUser(row)
+
+	updated := false
+	if req.Username != nil {
+		username := strings.TrimSpace(*req.Username)
+
+		if !usernameRegex.MatchString(username) {
+			badRequest(w, "Username must be 3-32 characters and contain only letters, numbers, underscores, and hyphens")
+			return
+		}
+
+		if username != currentUserRow.Username {
+			count, err := h.queries.CountUsersByUsername(r.Context(), username)
+			if err != nil {
+				slog.Error("error checking username availability", "error", err)
+				internalError(w)
+				return
+			}
+			if count > 0 {
+				conflict(w, "Username already taken")
+				return
+			}
+
+			now := time.Now().UTC()
+			rowsAffected, err := h.queries.UpdateUsername(r.Context(), sqldb.UpdateUsernameParams{
+				Username:  username,
+				UpdatedAt: &now,
+				ID:        userID,
+			})
+			if err != nil {
+				if db.IsUniqueConstraintError(err) {
+					conflict(w, "Username already taken")
+					return
+				}
+				slog.Error("error updating username", "error", err)
+				internalError(w)
+				return
+			}
+			if rowsAffected == 0 {
+				notFound(w, "User not found")
+				return
+			}
+			updated = true
+		}
+	}
+
+	updatedUserRow := currentUserRow
+	if updated {
+		updatedUserRow, err = h.queries.GetActiveUserByID(r.Context(), userID)
+		if errors.Is(err, sql.ErrNoRows) {
+			notFound(w, "User not found")
+			return
+		}
+		if err != nil {
+			slog.Error("error finding user", "error", err)
+			internalError(w)
+			return
+		}
+	}
+	user := modelUserFromDBUser(updatedUserRow)
 
 	if updated {
 		avatar := ""

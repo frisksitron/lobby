@@ -94,7 +94,7 @@ func NewServer(
 	r := chi.NewRouter()
 	r.Use(slogRequestLogger)
 	r.Use(middleware.Recoverer)
-	r.Use(corsMiddleware)
+	r.Use(corsMiddleware(cfg.Server.WebSocket.AllowedOrigins))
 	r.Use(securityHeadersMiddleware)
 
 	r.Get("/health", healthHandler.Check)
@@ -161,19 +161,46 @@ func (s *Server) Shutdown() {
 	s.hub.Shutdown()
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	origins := append([]string{}, allowedOrigins...)
 
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := strings.TrimSpace(r.Header.Get("Origin"))
+			if origin != "" {
+				if !isOriginAllowed(origin, origins) {
+					writeError(w, http.StatusForbidden, ErrCodeInvalidRequest, "CORS origin is not allowed")
+					return
+				}
+
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Add("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			}
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func isOriginAllowed(origin string, allowedOrigins []string) bool {
+	if isLoopbackOrigin(origin) {
+		return true
+	}
+
+	for _, allowedOrigin := range allowedOrigins {
+		if originMatchesAllowed(origin, allowedOrigin) {
+			return true
 		}
+	}
 
-		next.ServeHTTP(w, r)
-	})
+	return false
 }
 
 func maxBodySizeMiddleware(maxBytes int64) func(http.Handler) http.Handler {
